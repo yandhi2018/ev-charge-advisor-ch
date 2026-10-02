@@ -51,7 +51,8 @@ def duck() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
     con.execute(f"SET temp_directory = '{tmp.as_posix()}'")
-    con.execute("SET memory_limit = '6GB'")
+    con.execute("SET memory_limit = '4GB'")
+    con.execute("SET threads = 4")
     con.execute("SET preserve_insertion_order = false")
     return con
 
@@ -205,7 +206,9 @@ def process_month(month: str, force: bool = False) -> None:
             _copy_parquet_to_pg(con, conn, occ, "mart.occupancy_hourly", cols + ["source"],
                                 select=[c if c != "hour_utc" else "strftime(hour_utc, '%Y-%m-%d %H:%M:%S+00')"
                                         for c in cols] + ["'archive'"])
-        _write_coverage(ctx, month, con.sql(f"SELECT * FROM read_parquet('{cov.as_posix()}')").fetchone())
+        _write_coverage(ctx, month, con.sql(
+            "SELECT n_rows, n_slots, n_evse, share_with_geo, share_unknown "
+            f"FROM read_parquet('{cov.as_posix()}', hive_partitioning = false)").fetchone())
         con.close()
         shutil.rmtree(work, ignore_errors=True)
         if month in cfg.get("known_partial_months", []):

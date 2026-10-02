@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}О системе{% endblock %}
+{% block content %}
+<h2>О системе</h2>
+<p>EV Charge Advisor CH — информационная система управления данными зарядной инфраструктуры электромобилей
+  Швейцарии с интеграцией метеорологических данных. Учебный проект РТУ МИРЭА (ИНБО-20-23).</p>
+<h3>Пользователи</h3>
+<ul>
+  <li><strong>Водитель</strong> — подбирает станцию: разъём, мощность, расстояние, вероятность свободной точки к приезду.</li>
+  <li><strong>Аналитик инфраструктуры</strong> — загрузка сети по кантонам и часам, прогноз, влияние погоды, неисправности.</li>
+  <li><strong>Инженер данных</strong> — загрузки, свежесть, качество, изменения схем, происхождение показателей.</li>
+</ul>
+<h3>Источники данных и лицензии</h3>
+<ul>
+  <li>Статусы и паспорта зарядных точек: Федеральное ведомство энергетики (BFE), ich-tanke-strom.ch,
+    <a href="https://opendata.swiss/" target="_blank" rel="noopener">opendata.swiss</a> / data.geo.admin.ch — открытое использование с указанием источника.</li>
+  <li>Архив статусов 2022–2025: R. Santarromana,
+    <a href="https://github.com/rudolphsanta/Swiss-public-charging-dataset" target="_blank" rel="noopener">Swiss-public-charging-dataset</a>
+    (первоисточник — BFE).</li>
+  <li>Погода: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>, CC BY 4.0.</li>
+  <li>Каталог электромобилей: <a href="https://github.com/KilowattApp/open-ev-data" target="_blank" rel="noopener">Open EV Data (KilowattApp)</a>,
+    MIT с обязательным указанием источника.</li>
+  <li>Почтовые индексы и населённые пункты: swisstopo, Amtliches Ortschaftenverzeichnis.</li>
+  <li>Поиск адресов: api3.geo.admin.ch; карта: © участники OpenStreetMap.</li>
+</ul>
+<h3>Ограничения</h3>
+<ul>
+  <li>Архив статусов заканчивается в декабре 2025 г.; модели обучены на 2025 г., сеть в 2026 г. частично изменилась.</li>
+  <li>Вероятность для станции рассчитывается в предположении независимости точек; калибровка проверяется на тесте.</li>
+  <li>Время в пути оценивается по прямой с поправочным коэффициентом, если маршрутизатор OSRM не запущен.</li>
+  <li>Координаты водителя в журнале запросов огрубляются до ~1 км; персональные данные не хранятся.</li>
+</ul>
+{% endblock %}

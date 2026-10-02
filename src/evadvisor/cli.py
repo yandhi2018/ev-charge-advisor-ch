@@ -31,8 +31,18 @@ def _setup_logging(verbose: bool) -> None:
 
 
 @app.callback()
-def main(verbose: bool = typer.Option(False, "--verbose", "-v", help="Подробный журнал")) -> None:
+def main(ctx: typer.Context,
+         verbose: bool = typer.Option(False, "--verbose", "-v", help="Подробный журнал")) -> None:
     _setup_logging(verbose)
+    if ctx.invoked_subcommand not in (None, "db", "serve"):
+        try:
+            from evadvisor.runlog import recover_stale
+
+            n = recover_stale(max_hours=0.5)
+            if n:
+                logging.getLogger("evadvisor").warning("Помечено прерванных запусков: %s", n)
+        except Exception:  # БД может быть ещё не создана
+            pass
 
 
 # ---------------------------------------------------------------- db
@@ -157,6 +167,53 @@ def transform_cmd() -> None:
     typer.echo(f"Lineage: рёбер {lineage.sync()}")
     results = run_checks(raise_on_error=True)
     typer.echo(f"Проверки качества: {sum(r.passed for r in results)}/{len(results)} пройдено")
+
+
+# ---------------------------------------------------------------- модели и приложение
+@app.command("train")
+def train_cmd(task: str = typer.Option("all", help="canton | availability | all"),
+              resample: bool = typer.Option(False, help="Пересобрать обучающую выборку модели B")) -> None:
+    """Обучение и временная валидация моделей; метрики → mart.model_metric, модели → ops.model_registry."""
+    if task in ("canton", "all"):
+        from evadvisor.models import canton
+
+        for name, m in canton.evaluate().items():
+            typer.echo(f"A {name}: MAE {m['mae']:.4f}, RMSE {m['rmse']:.4f}, MASE {m['mase']:.3f}")
+    if task in ("availability", "all"):
+        from evadvisor.models import availability
+
+        for name, m in availability.evaluate(force_samples=resample).items():
+            typer.echo(f"B {name}: Brier {m['brier']:.4f}, AUC {m['auc']:.3f}, ECE {m['ece']:.4f}")
+
+
+@app.command("serve")
+def serve_cmd(host: str = typer.Option(None), port: int = typer.Option(None)) -> None:
+    """Веб-приложение (водитель, аналитика, состояние данных, происхождение)."""
+    import uvicorn
+
+    from evadvisor.config import settings
+
+    web = settings()["web"]
+    uvicorn.run("evadvisor.web.app:app", host=host or web["host"], port=port or web["port"])
+
+
+@app.command("run-all")
+def run_all(with_archive: bool = typer.Option(False, help="Обработать архив (первый запуск ~1,5 ч)"),
+            with_train: bool = typer.Option(False, help="Переобучить модели")) -> None:
+    """Полный цикл: загрузка → преобразования и lineage → проверки качества → (модели)."""
+    from evadvisor.ingestion import archive, evse_data, evse_status, postal, vehicles, weather
+
+    results = [_run_loader("postal", postal.run), _run_loader("evse_data", evse_data.run),
+               _run_loader("vehicles", vehicles.run), _run_loader("weather", weather.run, kind="all"),
+               _run_loader("evse_status", evse_status.run)]
+    if with_archive:
+        results.append(_run_loader("archive", archive.run, month=None))
+    transform_cmd()
+    if with_train:
+        train_cmd(task="all", resample=False)
+    if not all(results):
+        typer.echo("Часть источников не загрузилась — см. ops.load_run и страницу «Данные».")
+        raise typer.Exit(2)
 
 
 if __name__ == "__main__":

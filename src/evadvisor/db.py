@@ -8,8 +8,9 @@ driver — приложение водителя.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Literal
+from typing import Literal
 
 import psycopg
 from psycopg.rows import dict_row

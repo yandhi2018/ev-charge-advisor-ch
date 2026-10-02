@@ -42,7 +42,7 @@ where = ["src"]
 evadvisor = ["web/templates/*.html", "web/static/*"]
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]

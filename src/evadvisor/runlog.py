@@ -10,9 +10,10 @@ import json
 import logging
 import traceback
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any
 
 from evadvisor.db import connect
 
@@ -66,6 +67,17 @@ def start_run(source: str, params: dict[str, Any] | None = None) -> Iterator[Run
         raise
     _finish(ctx, status, error_text)
     log.info("%s %s: %s", source, ctx.run_id, status)
+
+
+def recover_stale(max_hours: float = 6) -> int:
+    """Запуски, «зависшие» в running после аварийного завершения процесса, помечаются failed."""
+    with connect("engineer", autocommit=True) as conn:
+        cur = conn.execute(
+            """UPDATE ops.load_run SET status = 'failed', finished_at = now(),
+                      error_text = 'interrupted: process terminated before completion'
+                WHERE status = 'running' AND started_at < now() - make_interval(secs => %s)""",
+            (max_hours * 3600,))
+    return cur.rowcount
 
 
 def _finish(ctx: RunContext, status: str, error_text: str | None) -> None:

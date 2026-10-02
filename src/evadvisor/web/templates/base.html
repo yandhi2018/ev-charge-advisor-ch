@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Где зарядиться{% endblock %} · EV Charge Advisor CH</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <nav class="container-fluid">
+      <ul><li><a href="/" class="brand">⚡ Где зарядиться</a></li></ul>
+      <ul>
+        <li><a href="/" {% if page == 'driver' %}aria-current="page"{% endif %}>Водителю</a></li>
+        <li><a href="/analytics" {% if page == 'analytics' %}aria-current="page"{% endif %}>Аналитика</a></li>
+        <li><a href="/operations" {% if page == 'operations' %}aria-current="page"{% endif %}>Данные</a></li>
+        <li><a href="/lineage" {% if page == 'lineage' %}aria-current="page"{% endif %}>Происхождение</a></li>
+        <li><a href="/about" {% if page == 'about' %}aria-current="page"{% endif %}>О системе</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main class="{% block main_class %}container{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="container small muted">
+    Данные: BFE / ich-tanke-strom.ch (opendata.swiss), swisstopo, Open-Meteo (CC BY 4.0),
+    Open EV Data (KilowattApp), архив статусов R. Santarromana. Учебный проект РТУ МИРЭА.
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

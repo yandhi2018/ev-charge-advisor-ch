@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Состояние данных{% endblock %}
+{% block head %}<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>{% endblock %}
+{% block content %}
+<h2>Состояние данных</h2>
+<p class="muted">Для инженера данных: загрузки, свежесть, качество, изменения схем и справочников. Служебный слой
+  <span class="mono">ops</span>, обновляется при каждом открытии страницы.</p>
+
+<form class="filters" method="get">
+  <label>Период
+    <select name="days">{% for d in [1, 7, 14, 30, 90] %}<option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ d }} дн.</option>{% endfor %}</select>
+  </label>
+  <label>Источник
+    <select name="source"><option value="">Все</option>{% for s in sources %}<option {% if s == source %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  </label>
+  <label>Проверки
+    <select name="severity"><option value="">Все</option>
+      <option value="error" {% if severity == 'error' %}selected{% endif %}>Блокирующие</option>
+      <option value="warn" {% if severity == 'warn' %}selected{% endif %}>Предупреждения</option></select>
+  </label>
+  <button type="submit">Показать</button>
+</form>
+
+<section class="card"><h3>Всё ли загрузилось и насколько свежие данные?</h3>
+  <p class="q">Последний запуск каждого источника и возраст последней успешной загрузки относительно допустимого.</p>
+  <div class="scroll"><table class="compact"><thead><tr><th>Источник</th><th>Последний запуск</th><th>Статус</th><th>Успешно, ч назад</th><th>Допустимо, ч</th><th>Строк получено / записано / отклонено</th><th>Ошибка</th></tr></thead><tbody>
+  {% for r in sources_last %}<tr>
+    <td>{{ r.source }}</td><td>{{ r.started_at.strftime('%d.%m %H:%M') }}</td>
+    <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
+    <td>{% if r.ok_age_h is not none %}<span class="status st-{{ 'ok' if r.fresh else 'warn' }}">{{ "%.1f"|format(r.ok_age_h) }}</span>{% else %}—{% endif %}</td>
+    <td>{{ r.sla_h or "—" }}</td>
+    <td>{{ "{:,}".format(r.rows_received).replace(',', ' ') }} / {{ "{:,}".format(r.rows_written).replace(',', ' ') }} / {{ r.rows_rejected }}</td>
+    <td class="small">{{ r.error_text or "" }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<div class="grid2">
+  <section class="card"><h3>Нет ли аномалий объёма?</h3><p class="q">Число полученных строк по запускам (логарифмическая шкала), цвет — статус.</p>
+    {{ fig_runs|safe if fig_runs else '<p class="empty">Запусков за период нет</p>'|safe }}</section>
+  <section class="card"><h3>Где дыры в истории?</h3><p class="q">Полнота архива статусов по месяцам и доля точек с метаданными.</p>
+    {{ fig_coverage|safe if fig_coverage else '<p class="empty">Архив не обработан</p>'|safe }}</section>
+</div>
+
+<section class="card"><h3>Что сломано и где?</h3><p class="q">Последний результат каждой проверки качества. Блокирующие (error) останавливают обновление витрин.</p>
+  {{ fig_dq|safe if fig_dq else '' }}
+  <div class="scroll"><table class="compact"><thead><tr><th>Проверка</th><th>Тип</th><th>Уровень</th><th>Таблица</th><th>Результат</th><th>Нарушений</th><th>Пример</th></tr></thead><tbody>
+  {% for c in dq_latest %}<tr title="{{ c.description }}">
+    <td>{{ c.description }}<br><span class="mono muted">{{ c.check_id }}</span></td><td>{{ c.check_type }}</td><td>{{ c.severity }}</td>
+    <td class="mono">{{ c.table_name }}</td>
+    <td>{% if c.passed is none %}—{% elif c.passed %}<span class="status st-ok">пройдена</span>{% else %}<span class="status st-{{ 'error' if c.severity == 'error' else 'warn' }}">не пройдена</span>{% endif %}</td>
+    <td>{{ c.failed_rows if c.failed_rows is not none else "—" }}</td>
+    <td class="mono small">{{ (c.sample or "")[:160] }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<div class="grid2">
+  <section class="card"><h3>Не поменял ли источник формат?</h3><p class="q">Каждая строка — новая структура полей источника.</p>
+    <table class="compact"><thead><tr><th>Источник</th><th>Хэш структуры</th><th>Полей</th><th>Впервые</th><th>Последний раз</th></tr></thead><tbody>
+    {% for s in schemas %}<tr><td>{{ s.source }}</td><td class="mono">{{ s.hash }}</td><td>{{ s.n_fields }}</td>
+      <td>{{ s.first_seen.strftime('%d.%m.%Y %H:%M') }}</td><td>{{ s.last_seen.strftime('%d.%m.%Y %H:%M') }}</td></tr>{% endfor %}
+    </tbody></table></section>
+  <section class="card"><h3>Как меняется сеть и что отклонено?</h3><p class="q">Изменения справочника точек (SCD2) и записи в карантине за период.</p>
+    <table class="compact"><thead><tr><th>День</th><th>Изменение</th><th>Точек</th></tr></thead><tbody>
+    {% for s in scd2[:12] %}<tr><td>{{ s.day.strftime('%d.%m.%Y') }}</td><td>{{ s.change_type }}</td><td>{{ s.n }}</td></tr>{% else %}<tr><td colspan="3" class="muted">нет изменений</td></tr>{% endfor %}
+    </tbody></table>
+    <table class="compact"><thead><tr><th>Таблица</th><th>Причина</th><th>Записей</th></tr></thead><tbody>
+    {% for q in quarantine %}<tr><td class="mono">{{ q.table_name }}</td><td>{{ q.reason }}</td><td>{{ q.n }}</td></tr>{% else %}<tr><td colspan="3" class="muted">карантин пуст</td></tr>{% endfor %}
+    </tbody></table></section>
+</div>
+
+<section class="card"><h3>Не деградировала ли модель доступности?</h3>
+  <p class="q">Диаграмма надёжности на тесте: точки на диагонали — предсказанная вероятность совпадает с фактической долей.
+  Журнал рекомендаций: {{ rec_log.n }} запросов, за сутки {{ rec_log.n_day }}.</p>
+  {{ fig_calibration|safe if fig_calibration else '<p class="empty">Модель ещё не обучена</p>'|safe }}
+</section>
+{% endblock %}

@@ -53,9 +53,10 @@ COMMENT ON FUNCTION core.fn_resolve_canton IS 'Кантон станции: по
 CREATE OR REPLACE FUNCTION core.fn_effective_power_kw(p_evse_id text, p_vehicle_id integer)
 RETURNS numeric
 LANGUAGE sql STABLE AS $$
-    SELECT CASE e.power_class
-               WHEN 'DC' THEN least(e.power_kw, v.dc_max_kw)
-               WHEN 'AC' THEN least(e.power_kw, v.ac_max_kw)
+    -- least() в PostgreSQL игнорирует NULL: при неизвестной мощности точки результат NULL, а не предел авто
+    SELECT CASE WHEN e.power_kw IS NULL THEN NULL
+                WHEN e.power_class = 'DC' AND v.dc_max_kw IS NOT NULL THEN least(e.power_kw, v.dc_max_kw)
+                WHEN e.power_class = 'AC' THEN least(e.power_kw, v.ac_max_kw)
            END
       FROM core.evse e, core.vehicle v
      WHERE e.evse_id = p_evse_id AND v.vehicle_id = p_vehicle_id;
@@ -82,8 +83,9 @@ LANGUAGE sql STABLE AS $$
            array_agg(DISTINCT ep.plug_code ORDER BY ep.plug_code) AS plug_codes,
            e.power_class,
            e.power_kw,
-           CASE e.power_class WHEN 'DC' THEN least(e.power_kw, v.dc_max_kw)
-                              ELSE least(e.power_kw, v.ac_max_kw) END AS effective_kw
+           CASE WHEN e.power_kw IS NULL THEN NULL
+                WHEN e.power_class = 'DC' THEN least(e.power_kw, v.dc_max_kw)
+                ELSE least(e.power_kw, v.ac_max_kw) END AS effective_kw
       FROM box, core.station s
       JOIN core.evse e        ON e.station_id = s.station_id AND e.is_active
       JOIN core.evse_plug ep  ON ep.evse_id = e.evse_id
