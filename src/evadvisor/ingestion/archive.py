@@ -32,6 +32,7 @@ from evadvisor.runlog import start_run
 log = logging.getLogger(__name__)
 SOURCE = "archive"
 SQL_DIR = ROOT / "db" / "duckdb"
+REQUIRED_COLUMNS = {"datetime", "EvseID", "EVSEStatus", "OperatorID"}
 
 
 def months(cfg: dict) -> list[str]:
@@ -183,6 +184,17 @@ def process_month(month: str, force: bool = False) -> None:
                           agg_dir / "coverage.parquet")
 
         con = duck()
+        # Контроль структуры: в источнике встречаются заглушки (2024-12 — Parquet с одной колонкой V1)
+        cols = {r[0] for r in con.sql(f"DESCRIBE SELECT * FROM read_parquet('{src.as_posix()}')").fetchall()}
+        missing = REQUIRED_COLUMNS - cols
+        if missing:
+            ctx.status = "partial"
+            ctx.errors.append(f"source file for {month} has no status data: missing {sorted(missing)}, "
+                              f"columns {sorted(cols)}")
+            _write_coverage(ctx, month, None)
+            con.close()
+            shutil.rmtree(work, ignore_errors=True)
+            return
         ctx.rows_received = con.sql(f"SELECT count(*) FROM read_parquet('{src.as_posix()}')").fetchone()[0]
         n_parts = int(cfg.get("n_parts", 16))
         for part in range(n_parts):   # части по хэшу EvseID: ограничивает память DuckDB
@@ -242,17 +254,30 @@ def build_profiles() -> None:
         con = duck()
         _dim(con)
         glob = (lake_dir("mart_parts") / "month=*" / "profile_parts.parquet").as_posix()
+        src = f"read_parquet('{glob}', hive_partitioning = false)"
         out = lake_dir("mart_parts")
-        con.execute(f"""
-            COPY (SELECT evse_id, dow, hour_local, sum(n_free) / sum(n_obs) AS p_free, sum(n_obs)::INTEGER AS n_obs
-                    FROM read_parquet('{glob}') GROUP BY ALL HAVING sum(n_obs) >= 12)
-            TO '{(out / 'evse_profile.parquet').as_posix()}' (FORMAT parquet)""")
+        n_parts = int(source_cfg(SOURCE).get("n_parts", 16))
+        con.execute("SET threads = 2")
+        parts = []
+        for part in range(n_parts):   # по частям хэша EvseID — ограничивает память
+            dst = out / f"evse_profile_{part}.parquet"
+            con.execute(f"""
+                COPY (SELECT evse_id, dow, hour_local, sum(n_free) / sum(n_obs) AS p_free,
+                             sum(n_obs)::INTEGER AS n_obs
+                        FROM {src} WHERE hash(evse_id) % {n_parts} = {part}
+                       GROUP BY ALL HAVING sum(n_obs) >= 12)
+                TO '{dst.as_posix()}' (FORMAT parquet)""")
+            parts.append(dst)
+        con.execute(f"COPY (SELECT * FROM read_parquet({[p.as_posix() for p in parts]})) "
+                    f"TO '{(out / 'evse_profile.parquet').as_posix()}' (FORMAT parquet)")
+        for p in parts:
+            p.unlink()
         con.execute(f"""
             COPY (SELECT d.canton_code, d.power_class, p.dow, p.hour_local,
                          sum(p.n_free) / sum(p.n_obs) AS p_free,
                          sum(p.n_occ) / nullif(sum(p.n_free + p.n_occ), 0) AS p_occupied,
-                         sum(p.n_obs) AS n_obs
-                    FROM read_parquet('{glob}') p JOIN dim d USING (evse_id)
+                         sum(p.n_obs)::BIGINT AS n_obs
+                    FROM {src} p JOIN dim d USING (evse_id)
                    WHERE d.canton_code IS NOT NULL AND d.power_class IS NOT NULL
                    GROUP BY ALL)
             TO '{(out / 'profile_group.parquet').as_posix()}' (FORMAT parquet)""")
