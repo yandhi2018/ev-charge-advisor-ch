@@ -1,0 +1,206 @@
+# Каталог проверок качества данных.
+# sql возвращает строки-нарушения (пустой результат = проверка пройдена).
+# severity: error — блокирует обновление витрин и обучение моделей; warn — фиксируется и
+# показывается на операционном дашборде, обработка продолжается.
+# Типы: completeness, uniqueness, validity, type, range, referential, freshness.
+
+checks:
+  - id: completeness_station_canton
+    layer: core
+    table: core.station
+    type: completeness
+    severity: warn
+    description: Станция без кантона (не удалось определить по индексу и координатам)
+    sql: |
+      SELECT station_id, name, postal_code, lat, lon FROM core.station WHERE canton_code IS NULL
+
+  - id: completeness_evse_power
+    layer: core
+    table: core.evse
+    type: completeness
+    severity: warn
+    description: Активная точка без мощности или типа тока — эффективная мощность не рассчитывается
+    sql: |
+      SELECT evse_id, power_kw, power_type FROM core.evse
+       WHERE is_active AND (power_kw IS NULL OR power_type IS NULL)
+
+  - id: completeness_evse_plugs
+    layer: core
+    table: core.evse_plug
+    type: completeness
+    severity: error
+    description: Активная точка без единого известного разъёма — не может участвовать в подборе
+    sql: |
+      -- допускается до 2 % таких точек (разъёмы, не указанные оператором)
+      WITH x AS (SELECT e.evse_id FROM core.evse e
+                  WHERE e.is_active
+                    AND NOT EXISTS (SELECT 1 FROM core.evse_plug p WHERE p.evse_id = e.evse_id))
+      SELECT evse_id FROM x
+       WHERE (SELECT count(*) FROM x) > 0.02 * (SELECT count(*) FROM core.evse WHERE is_active)
+
+  - id: completeness_weather_actual
+    layer: core
+    table: core.weather_hourly
+    type: completeness
+    severity: warn
+    description: Пропуски часов фактической погоды за последние 30 дней (с учётом задержки 3 дня)
+    sql: |
+      SELECT c.canton_code, h.hour_utc
+        FROM core.canton c
+       CROSS JOIN generate_series(date_trunc('day', now()) - interval '33 days',
+                                  date_trunc('day', now()) - interval '3 days 1 hour',
+                                  interval '1 hour') AS h(hour_utc)
+       WHERE NOT EXISTS (SELECT 1 FROM core.weather_hourly w
+                          WHERE w.canton_code = c.canton_code AND w.hour_utc = h.hour_utc AND w.kind = 'actual')
+
+  - id: uniqueness_evse_in_payload
+    layer: stg
+    table: stg.evse_data
+    type: uniqueness
+    severity: warn
+    description: Повтор EvseID в последней выгрузке справочника (устраняется дедупликацией)
+    sql: |
+      SELECT evse_id, count(*) AS n FROM stg.evse_data
+       WHERE run_id = (SELECT run_id FROM ops.load_run WHERE source = 'evse_data'
+                        AND status IN ('success', 'partial') ORDER BY started_at DESC LIMIT 1)
+       GROUP BY evse_id HAVING count(*) > 1
+
+  - id: uniqueness_station_location
+    layer: core
+    table: core.station
+    type: uniqueness
+    severity: warn
+    description: Разные станции одного оператора ближе 30 м друг к другу (возможный дубль сущности)
+    sql: |
+      SELECT a.station_id, b.station_id AS other_station_id, a.name,
+             round(core.fn_haversine_km(a.lat, a.lon, b.lat, b.lon)::numeric * 1000, 1) AS distance_m
+        FROM core.station a
+        JOIN core.station b ON b.operator_id = a.operator_id AND b.station_id > a.station_id
+         AND b.lat BETWEEN a.lat - 0.0003 AND a.lat + 0.0003
+         AND b.lon BETWEEN a.lon - 0.0005 AND a.lon + 0.0005
+       WHERE core.fn_haversine_km(a.lat, a.lon, b.lat, b.lon) < 0.03
+
+  - id: validity_evse_id_format
+    layer: core
+    table: core.evse
+    type: validity
+    severity: warn
+    description: EvseID не соответствует формату OICP (страна * оператор * E …)
+    sql: |
+      SELECT evse_id FROM core.evse WHERE evse_id !~ '^[A-Z]{2}\*?[A-Z0-9]{3}\*?E[A-Za-z0-9*_-]+$'
+
+  - id: validity_quarantine_recent
+    layer: stg
+    table: ops.quarantine
+    type: validity
+    severity: warn
+    description: Записи, отправленные в карантин за последние 24 часа (по причинам)
+    sql: |
+      SELECT table_name, reason, count(*) AS n FROM ops.quarantine
+       WHERE created_at > now() - interval '24 hours' GROUP BY 1, 2
+
+  - id: type_postal_code
+    layer: core
+    table: core.station
+    type: type
+    severity: warn
+    description: Почтовый индекс станции не является четырёхзначным числом
+    sql: |
+      SELECT station_id, postal_code FROM core.station
+       WHERE postal_code IS NOT NULL AND postal_code !~ '^[0-9]{4}$'
+
+  - id: range_evse_power
+    layer: core
+    table: core.evse
+    type: range
+    severity: warn
+    description: Мощность точки вне правдоподобного диапазона (AC 1–43 кВт, DC 5–400 кВт)
+    sql: |
+      SELECT evse_id, power_class, power_kw FROM core.evse
+       WHERE is_active AND power_kw IS NOT NULL
+         AND ((power_class = 'AC' AND power_kw NOT BETWEEN 1 AND 43)
+           OR (power_class = 'DC' AND power_kw NOT BETWEEN 5 AND 400))
+
+  - id: range_station_canton_distance
+    layer: core
+    table: core.station
+    type: range
+    severity: warn
+    description: Станция дальше 80 км от центра своего кантона (ошибка координат или индекса)
+    sql: |
+      SELECT s.station_id, s.canton_code, s.postal_code,
+             round(core.fn_haversine_km(s.lat, s.lon, c.lat, c.lon)::numeric, 1) AS km
+        FROM core.station s JOIN core.canton c USING (canton_code)
+       WHERE core.fn_haversine_km(s.lat, s.lon, c.lat, c.lon) > 80
+
+  - id: range_hour_coverage
+    layer: mart
+    table: mart.occupancy_hourly
+    type: range
+    severity: warn
+    description: Часы показателя загрузки, наблюдаемые менее чем в половине слотов
+    sql: |
+      SELECT canton_code, power_class, hour_utc, slots_observed FROM mart.occupancy_hourly
+       WHERE source = 'archive' AND slots_observed < 6
+
+  - id: referential_status_unknown_evse
+    layer: stg
+    table: stg.evse_status
+    type: referential
+    severity: warn
+    description: Статусы точек, отсутствующих в справочнике (последний снимок)
+    sql: |
+      SELECT q.record->>'count' AS n, q.record->'examples' AS examples FROM ops.quarantine q
+       WHERE q.reason = 'evse not in reference'
+         AND q.run_id = (SELECT run_id FROM ops.load_run WHERE source = 'evse_status' AND status = 'success'
+                          ORDER BY started_at DESC LIMIT 1)
+
+  - id: referential_archive_geo
+    layer: mart
+    table: mart.archive_coverage
+    type: referential
+    severity: warn
+    description: Месяц архива, в котором менее 60 % точек связаны с метаданными (кантон, класс)
+    sql: |
+      SELECT month, share_with_geo FROM mart.archive_coverage
+       WHERE n_rows > 0 AND share_with_geo < 0.6
+
+  - id: referential_vehicle_plugs
+    layer: core
+    table: core.vehicle_plug
+    type: referential
+    severity: error
+    description: Автомобиль без единого известного разъёма — для него невозможен подбор
+    sql: |
+      SELECT v.vehicle_id, v.brand, v.model FROM core.vehicle v
+       WHERE NOT EXISTS (SELECT 1 FROM core.vehicle_plug p WHERE p.vehicle_id = v.vehicle_id)
+
+  - id: freshness_evse_data
+    layer: core
+    table: core.evse
+    type: freshness
+    severity: warn
+    description: Справочник точек не обновлялся более 7 суток
+    sql: |
+      SELECT ops.fn_source_age_hours('evse_data') AS age_h
+       WHERE coalesce(ops.fn_source_age_hours('evse_data'), 1e9) > 168
+
+  - id: freshness_weather_actual
+    layer: core
+    table: core.weather_hourly
+    type: freshness
+    severity: warn
+    description: Фактическая погода отстаёт более чем на 5 суток
+    sql: |
+      SELECT max(hour_utc) AS last_hour FROM core.weather_hourly WHERE kind = 'actual'
+      HAVING coalesce(max(hour_utc), '-infinity') < now() - interval '5 days'
+
+  - id: freshness_archive_months
+    layer: mart
+    table: mart.archive_coverage
+    type: freshness
+    severity: warn
+    description: Месяц архива с полнотой слотов ниже 90 % (2024-10 и 2024-12 известны как неполные)
+    sql: |
+      SELECT month, n_slots, expected_slots, round(n_slots::numeric / expected_slots, 3) AS share
+        FROM mart.archive_coverage WHERE n_slots < 0.9 * expected_slots

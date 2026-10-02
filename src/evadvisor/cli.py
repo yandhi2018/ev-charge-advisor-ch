@@ -134,5 +134,30 @@ def ingest_all(with_archive: bool = typer.Option(False, help="Включить �
         raise typer.Exit(2)
 
 
+# ---------------------------------------------------------------- transform / quality
+@app.command("quality")
+def quality_cmd(strict: bool = typer.Option(True, help="Ошибка при непройденных блокирующих проверках")) -> None:
+    """Проверки качества данных (config/dq_checks.yaml) → ops.dq_result."""
+    from evadvisor.quality import run_checks
+
+    results = run_checks(raise_on_error=strict)
+    failed = [r for r in results if not r.passed]
+    typer.echo(f"Проверок: {len(results)}, не пройдено: {len(failed)}")
+
+
+@app.command("transform")
+def transform_cmd() -> None:
+    """Витрины по живым снимкам, метаданные lineage, проверки качества."""
+    from evadvisor import lineage
+    from evadvisor.db import session
+    from evadvisor.quality import run_checks
+
+    with session("engineer") as conn:
+        conn.execute("CALL mart.sp_refresh_live_occupancy(now() - interval '14 days')")
+    typer.echo(f"Lineage: рёбер {lineage.sync()}")
+    results = run_checks(raise_on_error=True)
+    typer.echo(f"Проверки качества: {sum(r.passed for r in results)}/{len(results)} пройдено")
+
+
 if __name__ == "__main__":
     app()

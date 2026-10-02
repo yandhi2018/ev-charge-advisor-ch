@@ -1,0 +1,138 @@
+# Граф происхождения данных (метаданные, профиль «Управление данными»).
+# Узлы и рёбра загружаются в ops.lineage_node / ops.lineage_edge командой `evadvisor transform`.
+# ref — где посмотреть реализацию (файл, таблица, процедура).
+
+nodes:
+  # Источники
+  - {id: src.archive,      type: source, title: "Архив статусов 2024–2025 (GitHub, BFE)", ref: "config.yaml: sources.archive"}
+  - {id: src.details,      type: source, title: "ChargingStationDetails (февраль 2026)", ref: "config.yaml: sources.archive.details_url"}
+  - {id: src.evse_data,    type: source, title: "EVSEData, data.geo.admin.ch", ref: "config.yaml: sources.evse_data"}
+  - {id: src.evse_status,  type: source, title: "EVSEStatus, data.geo.admin.ch", ref: "config.yaml: sources.evse_status"}
+  - {id: src.weather,      type: source, title: "Open-Meteo (archive, historical forecast, forecast)", ref: "config.yaml: sources.weather"}
+  - {id: src.vehicles,     type: source, title: "Open EV Data + собственный каталог", ref: "config.yaml: sources.vehicles"}
+  - {id: src.postal,       type: source, title: "Справочник населённых пунктов и индексов swisstopo (PLZ → кантон)", ref: "config.yaml: sources.postal"}
+
+  # Загрузка
+  - {id: load.archive,     type: loader, title: "Загрузчик архива", ref: "src/evadvisor/ingestion/archive.py"}
+  - {id: load.evse_data,   type: loader, title: "Загрузчик справочника точек", ref: "src/evadvisor/ingestion/evse_data.py"}
+  - {id: load.evse_status, type: loader, title: "Загрузчик снимка статусов", ref: "src/evadvisor/ingestion/evse_status.py"}
+  - {id: load.weather,     type: loader, title: "Загрузчик погоды", ref: "src/evadvisor/ingestion/weather.py"}
+  - {id: load.vehicles,    type: loader, title: "Загрузчик каталога автомобилей", ref: "src/evadvisor/ingestion/vehicles.py"}
+  - {id: load.postal,      type: loader, title: "Загрузчик почтовых индексов", ref: "src/evadvisor/ingestion/postal.py"}
+
+  # raw
+  - {id: raw.archive,      type: raw, title: "data/raw/archive/*.7z", ref: "ops.raw_manifest"}
+  - {id: raw.evse_data,    type: raw, title: "data/raw/evse_data/*.json.gz", ref: "ops.raw_manifest"}
+  - {id: raw.evse_status,  type: raw, title: "data/raw/evse_status/*/*.json.gz", ref: "ops.raw_manifest"}
+  - {id: raw.weather,      type: raw, title: "data/raw/weather/*/*.json", ref: "ops.raw_manifest"}
+
+  # staging
+  - {id: stg.status_5min,  type: stg, title: "Статусы на 5-минутной сетке (Parquet)", ref: "db/duckdb/01_status_5min.sql"}
+  - {id: stg.evse_data,    type: stg, title: "stg.evse_data", ref: "db/01_create_tables.sql"}
+  - {id: stg.evse_status,  type: stg, title: "stg.evse_status", ref: "db/01_create_tables.sql"}
+  - {id: stg.weather,      type: stg, title: "stg.weather_hourly", ref: "db/01_create_tables.sql"}
+  - {id: stg.archive_details, type: stg, title: "stg.archive_details", ref: "db/01_create_tables.sql"}
+
+  # преобразования
+  - {id: tr.episodes,      type: transform, title: "Эпизоды статусов (DuckDB)", ref: "db/duckdb/02_status_episode.sql"}
+  - {id: tr.month_marts,   type: transform, title: "Агрегаты месяца (DuckDB)", ref: "db/duckdb/03_month_marts.sql"}
+  - {id: tr.sp_evse_data,  type: transform, title: "core.sp_apply_evse_data", ref: "db/05_procedures.sql"}
+  - {id: tr.sp_status,     type: transform, title: "core.sp_apply_status_snapshot", ref: "db/05_procedures.sql"}
+  - {id: tr.sp_weather,    type: transform, title: "core.sp_apply_weather", ref: "db/05_procedures.sql"}
+  - {id: tr.sp_archive_evse, type: transform, title: "core.sp_build_archive_evse", ref: "db/05_procedures.sql"}
+  - {id: tr.sp_live_occ,   type: transform, title: "mart.sp_refresh_live_occupancy", ref: "db/05_procedures.sql"}
+
+  # core
+  - {id: core.station,     type: core, title: "core.station (разрешение сущностей)", ref: "db/01_create_tables.sql"}
+  - {id: core.evse,        type: core, title: "core.evse + core.evse_history (SCD2)", ref: "db/06_triggers.sql"}
+  - {id: core.archive_evse, type: core, title: "core.archive_evse (метаданные архива)", ref: "db/01_create_tables.sql"}
+  - {id: core.episodes,    type: core, title: "Эпизоды статусов (Parquet)", ref: "data/lake/core/status_episode"}
+  - {id: core.snapshot,    type: core, title: "core.status_snapshot", ref: "db/01_create_tables.sql"}
+  - {id: core.weather,     type: core, title: "core.weather_hourly", ref: "db/01_create_tables.sql"}
+  - {id: core.vehicle,     type: core, title: "core.vehicle + vehicle_plug", ref: "db/01_create_tables.sql"}
+  - {id: core.postal,      type: core, title: "core.postal_code", ref: "db/01_create_tables.sql"}
+
+  # витрины
+  - {id: mart.occupancy,   type: mart, title: "mart.occupancy_hourly", ref: "db/01_create_tables.sql"}
+  - {id: mart.profiles,    type: mart, title: "mart.profile_group, mart.evse_profile", ref: "src/evadvisor/ingestion/archive.py"}
+  - {id: mart.forecast,    type: mart, title: "mart.forecast_canton", ref: "src/evadvisor/models/canton.py"}
+  - {id: mart.metrics,     type: mart, title: "mart.model_metric", ref: "src/evadvisor/models"}
+  - {id: mart.coverage,    type: mart, title: "mart.archive_coverage", ref: "db/duckdb/03_month_marts.sql"}
+
+  # модели
+  - {id: model.canton,     type: model, title: "Модели прогноза загрузки A0–A2", ref: "src/evadvisor/models/canton.py"}
+  - {id: model.availability, type: model, title: "Модели доступности B0–B3", ref: "src/evadvisor/models/availability.py"}
+
+  # показатели
+  - {id: metric.occupancy, type: metric, title: "Загрузка = Occupied / (Available + Occupied)", ref: "mart.occupancy_hourly.occupancy_rate"}
+  - {id: metric.forecast,  type: metric, title: "Прогноз загрузки на 1–24 ч", ref: "mart.forecast_canton.y_pred"}
+  - {id: metric.p_free,    type: metric, title: "Вероятность свободной точки к приезду", ref: "src/evadvisor/recommender"}
+  - {id: metric.dq,        type: metric, title: "Доля пройденных проверок качества", ref: "ops.dq_result"}
+
+  # дашборды
+  - {id: dash.subject,     type: dashboard, title: "Предметный дашборд (аналитик)", ref: "/analytics"}
+  - {id: dash.ops,         type: dashboard, title: "Операционный дашборд (инженер данных)", ref: "/operations"}
+  - {id: dash.driver,      type: dashboard, title: "Приложение водителя", ref: "/"}
+
+edges:
+  - src.archive -> load.archive
+  - load.archive -> raw.archive
+  - raw.archive -> stg.status_5min
+  - stg.status_5min -> tr.episodes
+  - tr.episodes -> core.episodes
+  - stg.status_5min -> tr.month_marts
+  - src.details -> load.archive
+  - load.archive -> stg.archive_details
+  - stg.archive_details -> tr.sp_archive_evse
+  - core.evse -> tr.sp_archive_evse
+  - core.postal -> tr.sp_archive_evse
+  - tr.sp_archive_evse -> core.archive_evse
+  - core.archive_evse -> tr.month_marts
+  - tr.month_marts -> mart.occupancy
+  - tr.month_marts -> mart.profiles
+  - tr.month_marts -> mart.coverage
+  - src.postal -> load.postal
+  - load.postal -> core.postal
+  - src.evse_data -> load.evse_data
+  - load.evse_data -> raw.evse_data
+  - raw.evse_data -> stg.evse_data
+  - stg.evse_data -> tr.sp_evse_data
+  - core.postal -> tr.sp_evse_data
+  - tr.sp_evse_data -> core.station
+  - tr.sp_evse_data -> core.evse
+  - src.evse_status -> load.evse_status
+  - load.evse_status -> raw.evse_status
+  - raw.evse_status -> stg.evse_status
+  - stg.evse_status -> tr.sp_status
+  - core.evse -> tr.sp_status
+  - tr.sp_status -> core.snapshot
+  - core.snapshot -> tr.sp_live_occ
+  - tr.sp_live_occ -> mart.occupancy
+  - src.weather -> load.weather
+  - load.weather -> raw.weather
+  - raw.weather -> stg.weather
+  - stg.weather -> tr.sp_weather
+  - tr.sp_weather -> core.weather
+  - src.vehicles -> load.vehicles
+  - load.vehicles -> core.vehicle
+  - mart.occupancy -> model.canton
+  - core.weather -> model.canton
+  - model.canton -> mart.forecast
+  - model.canton -> mart.metrics
+  - stg.status_5min -> model.availability
+  - core.archive_evse -> model.availability
+  - core.weather -> model.availability
+  - model.availability -> mart.metrics
+  - mart.occupancy -> metric.occupancy
+  - mart.forecast -> metric.forecast
+  - core.snapshot -> metric.p_free
+  - mart.profiles -> metric.p_free
+  - model.availability -> metric.p_free
+  - core.vehicle -> dash.driver
+  - core.station -> dash.driver
+  - metric.p_free -> dash.driver
+  - metric.occupancy -> dash.subject
+  - metric.forecast -> dash.subject
+  - mart.metrics -> dash.subject
+  - mart.coverage -> dash.ops
+  - metric.dq -> dash.ops
