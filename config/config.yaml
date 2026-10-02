@@ -38,6 +38,11 @@ sources:
     manual_csv: "config/vehicles_manual.csv"
     timeout_s: [10, 60]
 
+  postal:
+    # Amtliches Ortschaftenverzeichnis (swisstopo), PLZ → кантон, WGS84
+    url: "https://data.geo.admin.ch/ch.swisstopo-vd.ortschaftenverzeichnis_plz/ortschaftenverzeichnis_plz/ortschaftenverzeichnis_plz_4326.csv.zip"
+    timeout_s: [10, 120]
+
   geocoder:
     url: "https://api3.geo.admin.ch/rest/services/api/SearchServer"
     timeout_s: [5, 15]

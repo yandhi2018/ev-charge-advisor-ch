@@ -1,0 +1,3 @@
+brand,model,variant,release_year,battery_kwh,ac_max_kw,dc_max_kw,ports,note
+Volkswagen,e-Golf,35.8 kWh,2017,32.0,7.2,40,type2|ccs,Нет в Open EV Data; спецификация производителя
+Renault,Twizy,6.1 kWh,2012,6.1,2.0,,type2,Без быстрой зарядки (dc_max_kw пусто); проверка ветки «только AC»

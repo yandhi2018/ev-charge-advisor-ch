@@ -54,11 +54,15 @@ def register(ctx: RunContext, path: Path, sha: str | None = None) -> str:
     return sha
 
 
-def save(ctx: RunContext, data: bytes, name: str, subdir: str = "") -> Path:
-    """Сохранить ответ источника в data/raw/<source>/<subdir>/<name> и зарегистрировать."""
+def save(ctx: RunContext, data: bytes, name: str, subdir: str = "", content_sha: str | None = None) -> Path:
+    """Сохранить ответ источника в data/raw/<source>/<subdir>/<name> и зарегистрировать.
+
+    content_sha — хэш исходного содержимого, если на диск пишется сжатая копия:
+    по нему проверяется идемпотентность (already_loaded).
+    """
     path = raw_dir(ctx.source) / subdir / name if subdir else raw_dir(ctx.source) / name
     atomic_write(path, data)
-    register(ctx, path, sha256_bytes(data))
+    register(ctx, path, content_sha or sha256_bytes(data))
     return path
 
 

@@ -180,6 +180,16 @@ CREATE TABLE IF NOT EXISTS stg.weather_hourly (
 );
 CREATE INDEX IF NOT EXISTS stg_weather_run_idx ON stg.weather_hourly (run_id);
 
+CREATE TABLE IF NOT EXISTS stg.archive_details (
+    run_id      uuid    NOT NULL REFERENCES ops.load_run (run_id) ON DELETE CASCADE,
+    evse_id     text,
+    lat         double precision,
+    lon         double precision,
+    postal_code text,
+    power_kw    numeric(7, 2),
+    power_type  text
+);
+
 CREATE TABLE IF NOT EXISTS stg.vehicle (
     run_id        uuid    NOT NULL REFERENCES ops.load_run (run_id) ON DELETE CASCADE,
     source        text    NOT NULL,
@@ -354,6 +364,19 @@ CREATE TABLE IF NOT EXISTS core.status_snapshot (
 );
 CREATE INDEX IF NOT EXISTS status_snapshot_evse_idx ON core.status_snapshot (evse_id, slot_ts DESC);
 COMMENT ON TABLE core.status_snapshot IS 'Снимки текущего статуса точек (5-минутные слоты), получаемые при поиске водителем';
+
+CREATE TABLE IF NOT EXISTS core.archive_evse (
+    evse_id     text    PRIMARY KEY,
+    canton_code char(2) REFERENCES core.canton (canton_code),
+    power_class text    CHECK (power_class IN ('AC', 'DC')),
+    power_kw    numeric(7, 2) CHECK (power_kw > 0),
+    lat         double precision,
+    lon         double precision,
+    meta_source text    NOT NULL CHECK (meta_source IN ('evse_data', 'details_csv')),
+    run_id      uuid    REFERENCES ops.load_run (run_id)
+);
+COMMENT ON TABLE core.archive_evse IS 'Метаданные точек архива статусов: кантон и класс мощности. Из текущего справочника, '
+    'а для исчезнувших точек — из ChargingStationDetails (февраль 2026)';
 
 CREATE TABLE IF NOT EXISTS core.recommendation_request (
     request_id     uuid        PRIMARY KEY,

@@ -279,6 +279,40 @@ $$;
 COMMENT ON PROCEDURE core.sp_apply_vehicles IS 'stg.vehicle → core.vehicle + vehicle_plug; собственный каталог имеет приоритет';
 
 ------------------------------------------------------------------------
+-- Метаданные точек архива: текущий справочник приоритетнее ChargingStationDetails
+------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE core.sp_build_archive_evse(p_run_id uuid)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_written bigint;
+BEGIN
+    DELETE FROM core.archive_evse;
+    INSERT INTO core.archive_evse (evse_id, canton_code, power_class, power_kw, lat, lon, meta_source, run_id)
+    SELECT e.evse_id, s.canton_code, e.power_class, e.power_kw, s.lat, s.lon, 'evse_data', p_run_id
+      FROM core.evse e JOIN core.station s ON s.station_id = e.station_id;
+
+    INSERT INTO core.archive_evse (evse_id, canton_code, power_class, power_kw, lat, lon, meta_source, run_id)
+    SELECT d.evse_id,
+           core.fn_resolve_canton(d.postal_code, d.lat, d.lon),
+           CASE WHEN upper(d.power_type) = 'DC' THEN 'DC'
+                WHEN upper(d.power_type) LIKE 'AC%' THEN 'AC'
+                WHEN d.power_kw > 22 THEN 'DC' END,
+           CASE WHEN d.power_kw > 0 THEN d.power_kw END,
+           d.lat, d.lon, 'details_csv', p_run_id
+      FROM (SELECT DISTINCT ON (evse_id) * FROM stg.archive_details
+             WHERE run_id = p_run_id AND evse_id IS NOT NULL
+               AND lat BETWEEN 45.5 AND 48.0 AND lon BETWEEN 5.5 AND 11.0
+             ORDER BY evse_id, power_kw DESC NULLS LAST) d
+    ON CONFLICT (evse_id) DO NOTHING;
+    GET DIAGNOSTICS v_written = ROW_COUNT;
+
+    UPDATE ops.load_run SET rows_written = v_written WHERE run_id = p_run_id;
+    DELETE FROM stg.archive_details WHERE run_id = p_run_id;
+END;
+$$;
+COMMENT ON PROCEDURE core.sp_build_archive_evse IS 'Справочник точек архива (кантон, класс мощности) для расчёта витрин';
+
+------------------------------------------------------------------------
 -- Витрина: почасовая загрузка по живым снимкам
 ------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE mart.sp_refresh_live_occupancy(p_from timestamptz DEFAULT now() - interval '2 days')
