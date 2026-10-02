@@ -1,0 +1,118 @@
+# Конфигурация системы. Секретов здесь нет: пароли только в .env.
+
+sources:
+  archive:
+    # Архив статусов (Rudolph Santarromana, Swiss-public-charging-dataset; первоисточник BFE / opendata.swiss)
+    base_url: "https://raw.githubusercontent.com/rudolphsanta/Swiss-public-charging-dataset/main/Swiss-EVChg-Data_Parquet"
+    file_pattern: "{month}_charging.7z"
+    months_from: "2024-01"
+    months_to: "2025-12"
+    known_empty_months: ["2024-12"]          # файл в источнике пустой
+    known_partial_months: ["2024-10"]        # неполный месяц
+    details_url: "https://raw.githubusercontent.com/rudolphsanta/Swiss-public-charging-dataset/main/ChargingStationDetails_19-02-2026.csv"
+    timeout_s: [10, 300]
+
+  evse_status:
+    url: "https://data.geo.admin.ch/ch.bfe.ladestellen-elektromobilitaet/status/ch.bfe.ladestellen-elektromobilitaet.json"
+    cache_minutes: 5                          # не чаще одного снимка за 5-минутный слот
+    timeout_s: [10, 90]
+
+  evse_data:
+    url: "https://data.geo.admin.ch/ch.bfe.ladestellen-elektromobilitaet/data/ch.bfe.ladestellen-elektromobilitaet.json"
+    timeout_s: [10, 240]
+
+  weather:
+    archive_url: "https://archive-api.open-meteo.com/v1/archive"
+    historical_forecast_url: "https://historical-forecast-api.open-meteo.com/v1/forecast"
+    forecast_url: "https://api.open-meteo.com/v1/forecast"
+    hourly_variables: [temperature_2m, precipitation, snowfall, wind_speed_10m]
+    publication_delay_days: 3
+    backfill_from: "2024-01-01"
+    chunk_days: 366                           # длина окна одного запроса
+    forecast_cache_minutes: 60
+    timeout_s: [10, 90]
+
+  vehicles:
+    # Open EV Data (KilowattApp), MIT с обязательным указанием источника; chargeprice/open-ev-data удалён
+    open_ev_data_url: "https://raw.githubusercontent.com/KilowattApp/open-ev-data/master/data/ev-data.json"
+    manual_csv: "config/vehicles_manual.csv"
+    timeout_s: [10, 60]
+
+  geocoder:
+    url: "https://api3.geo.admin.ch/rest/services/api/SearchServer"
+    timeout_s: [5, 15]
+
+# Опорные точки погоды: административные центры 26 кантонов (перенесено из evcharge-ch-forecast)
+cantons:
+  ZH: { name: "Zürich",       lat: 47.3769, lon: 8.5417 }
+  BE: { name: "Bern",         lat: 46.9480, lon: 7.4474 }
+  LU: { name: "Luzern",       lat: 47.0502, lon: 8.3093 }
+  UR: { name: "Altdorf",      lat: 46.8802, lon: 8.6437 }
+  SZ: { name: "Schwyz",       lat: 47.0207, lon: 8.6524 }
+  OW: { name: "Sarnen",       lat: 46.8965, lon: 8.2458 }
+  NW: { name: "Stans",        lat: 46.9581, lon: 8.3654 }
+  GL: { name: "Glarus",       lat: 47.0404, lon: 9.0680 }
+  ZG: { name: "Zug",          lat: 47.1662, lon: 8.5155 }
+  FR: { name: "Fribourg",     lat: 46.8065, lon: 7.1619 }
+  SO: { name: "Solothurn",    lat: 47.2088, lon: 7.5323 }
+  BS: { name: "Basel",        lat: 47.5596, lon: 7.5886 }
+  BL: { name: "Liestal",      lat: 47.4838, lon: 7.7357 }
+  SH: { name: "Schaffhausen", lat: 47.6970, lon: 8.6349 }
+  AR: { name: "Herisau",      lat: 47.3854, lon: 9.2792 }
+  AI: { name: "Appenzell",    lat: 47.3311, lon: 9.4090 }
+  SG: { name: "St. Gallen",   lat: 47.4245, lon: 9.3767 }
+  GR: { name: "Chur",         lat: 46.8499, lon: 9.5330 }
+  AG: { name: "Aarau",        lat: 47.3925, lon: 8.0442 }
+  TG: { name: "Frauenfeld",   lat: 47.5590, lon: 8.8992 }
+  TI: { name: "Bellinzona",   lat: 46.1944, lon: 9.0175 }
+  VD: { name: "Lausanne",     lat: 46.5197, lon: 6.6323 }
+  VS: { name: "Sion",         lat: 46.2331, lon: 7.3606 }
+  NE: { name: "Neuchâtel",    lat: 46.9900, lon: 6.9293 }
+  GE: { name: "Genève",       lat: 46.2044, lon: 6.1432 }
+  JU: { name: "Delémont",     lat: 47.3659, lon: 7.3459 }
+
+# Разрешение сущностей: точки одной станции
+station_resolution:
+  max_distance_m: 30
+
+# Рекомендатель (раздел 5 DESIGN.md)
+recommender:
+  radius_km: 15
+  radius_max_km: 50
+  min_candidates: 5
+  top_n: 5
+  detour_factor: 1.3
+  speed_kmh_near: 35          # до 5 км
+  speed_kmh_far: 60
+  near_threshold_km: 5
+  wait_penalty_min: 20
+  energy_options_kwh: [10, 20, 40]
+  default_energy_kwh: 20
+  cold_warning_c: 0
+  status_max_age_min: 30      # старше — показываем предупреждение
+
+routing:
+  engine: "haversine"         # haversine | osrm
+  osrm_url: "http://127.0.0.1:5000"
+
+models:
+  random_seed: 42
+  canton:
+    horizons_h: [1, 2, 3, 6, 12, 24]
+    folds:
+      - { train_to: "2025-05-31", test_from: "2025-06-08", test_to: "2025-07-31" }
+      - { train_to: "2025-07-31", test_from: "2025-08-08", test_to: "2025-09-30" }
+      - { train_to: "2025-09-30", test_from: "2025-10-08", test_to: "2025-12-31" }
+  availability:
+    train_from: "2025-01-01"
+    train_to: "2025-08-31"
+    valid_from: "2025-09-02"
+    valid_to: "2025-10-31"
+    test_from: "2025-11-02"
+    test_to: "2025-12-31"
+    sample_share: 0.01
+    deltas_min: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
+
+web:
+  host: "127.0.0.1"
+  port: 8000

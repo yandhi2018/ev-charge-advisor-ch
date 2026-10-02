@@ -1,0 +1,31 @@
+# Окружение и секреты
+.venv/
+.env
+*.env.local
+
+# Данные: в git только маленькие примеры из data/sample
+data/*
+!data/sample/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.7z
+*.dump
+
+# Артефакты моделей и отчёты прогонов
+artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# IDE и ОС
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

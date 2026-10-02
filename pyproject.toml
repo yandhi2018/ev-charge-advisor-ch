@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evadvisor"
+version = "0.1.0"
+description = "Информационная система управления данными зарядной инфраструктуры электромобилей Швейцарии с интеграцией метеоданных и рекомендацией ЭЗС"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb",
+    "pyarrow",
+    "pandas",
+    "numpy",
+    "py7zr",
+    "requests",
+    "pyyaml",
+    "python-dotenv",
+    "psycopg[binary]",
+    "typer",
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "plotly",
+    "scikit-learn",
+    "lightgbm",
+    "holidays",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "httpx"]
+
+[project.scripts]
+evadvisor = "evadvisor.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+evadvisor = ["web/templates/*.html", "web/static/*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["db: тесты, которым нужна запущенная PostgreSQL (пропускаются без EVADVISOR_TEST_DB)"]
