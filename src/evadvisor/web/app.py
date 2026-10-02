@@ -29,6 +29,16 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
 
 
+def _local(dt, fmt: str = "%d.%m %H:%M") -> str:
+    """Время из БД (UTC) — по часовому поясу этого ПК: так удобнее инженеру, запускающему загрузки."""
+    if dt is None:
+        return "—"
+    return dt.astimezone().strftime(fmt)
+
+
+templates.env.filters["local"] = _local
+
+
 # ---------------------------------------------------------------- страницы
 @app.get("/", response_class=HTMLResponse)
 def driver_page(request: Request):

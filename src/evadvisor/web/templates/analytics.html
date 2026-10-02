@@ -1,73 +1,113 @@
 {% extends "base.html" %}
-{% block title %}Аналитика загрузки{% endblock %}
+{% block title %}Загрузка зарядной сети{% endblock %}
 {% block head %}<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>{% endblock %}
 {% block content %}
-<h2>Загрузка зарядной сети</h2>
-<p class="muted">Для аналитика зарядной инфраструктуры. Загрузка = Occupied / (Available + Occupied); источник — витрина
-  <span class="mono">mart.occupancy_hourly</span>, обновляется при каждом открытии страницы.
-  <a href="/lineage?node=metric.occupancy">Откуда этот показатель?</a></p>
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Загрузка зарядной сети</h1>
+      <p>Какая доля работающих зарядных точек занята — по кантонам, часам и типу зарядки, и насколько точно система
+        это прогнозирует. <a href="/lineage?node=metric.occupancy">Откуда эти данные?</a></p>
+    </div>
+  </div>
 
-<form class="filters" method="get">
-  <label>Период
-    <select name="period">{% for v, t in periods %}<option value="{{ v }}" {% if v == period %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
-  </label>
-  <label>Кантон
-    <select name="canton"><option value="">Все</option>{% for c in cantons %}<option {% if c == canton %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
-  </label>
-  <label>Класс мощности
-    <select name="power_class"><option value="">AC и DC</option>
-      <option value="AC" {% if power_class == 'AC' %}selected{% endif %}>AC — медленная</option>
-      <option value="DC" {% if power_class == 'DC' %}selected{% endif %}>DC — быстрая</option></select>
-  </label>
-  <button type="submit">Показать</button>
-  {% if range_text %}<span class="small muted">Данные: {{ range_text }}</span>{% endif %}
-</form>
+  <form class="toolbar" method="get" id="filters">
+    <label class="field"><span class="label">Период</span>
+      <select name="period">{% for v, t in periods %}<option value="{{ v }}" {% if v == period %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+    </label>
+    <label class="field"><span class="label">Кантон</span>
+      <select name="canton"><option value="">Вся Швейцария</option>{% for c, n in cantons %}<option value="{{ c }}" {% if c == canton %}selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+    </label>
+    <label class="field"><span class="label">Тип зарядки</span>
+      <select name="power_class"><option value="">Любая</option>
+        <option value="AC" {% if power_class == 'AC' %}selected{% endif %}>Обычная (AC)</option>
+        <option value="DC" {% if power_class == 'DC' %}selected{% endif %}>Быстрая (DC)</option></select>
+    </label>
+    <noscript><button class="btn" type="submit">Показать</button></noscript>
+    {% if range_text %}<span class="meta">Архив: {{ range_text }}</span>{% endif %}
+  </form>
 
-{% if empty %}
-<p class="empty">Витрина пуста: выполните <span class="mono">evadvisor ingest archive</span>.</p>
-{% else %}
-<div class="kpis">
-  <div class="kpi"><div class="v">{{ "%.1f"|format((kpi.occ or 0) * 100) }} %</div><div class="l">Средняя загрузка{% if canton %} в {{ canton }}{% endif %}</div></div>
-  <div class="kpi"><div class="v">{{ "%02d:00"|format(kpi.peak_hour) if kpi.peak_hour is not none else "—" }}</div>
-    <div class="l">Пиковый час: {{ "%.1f"|format((kpi.peak_occ or 0) * 100) }} %</div></div>
-  <div class="kpi"><div class="v">{{ "%.1f"|format((kpi.oos or 0) * 100) }} %</div><div class="l">Точек неисправно (OutOfService)</div></div>
+  {% if empty %}
+  <div class="card empty-state"><div class="big">📭</div>Данных пока нет: обработайте архив командой <code>evadvisor ingest archive</code>.</div>
+  {% else %}
+  <div class="kpis">
+    <div class="kpi"><div class="v">{{ "%.1f"|format((kpi.occ or 0) * 100) }} %</div>
+      <div class="l">Средняя загрузка</div><div class="s">{{ scope }}</div></div>
+    <div class="kpi"><div class="v">{{ "%d:00"|format(kpi.peak_hour) if kpi.peak_hour is not none else "—" }}</div>
+      <div class="l">Самый загруженный час</div><div class="s">в этот час занято {{ "%.1f"|format((kpi.peak_occ or 0) * 100) }} % точек</div></div>
+    <div class="kpi"><div class="v">{{ "%.1f"|format((kpi.oos or 0) * 100) }} %</div>
+      <div class="l">Точек не работает</div><div class="s">статус OutOfService, в среднем за период</div></div>
+    {% if kpi.mae %}<div class="kpi"><div class="v">±{{ "%.1f"|format(kpi.mae * 100) }} п.п.</div>
+      <div class="l">Ошибка прогноза загрузки</div><div class="s">у базовой модели ±{{ "%.1f"|format(kpi.mae_base * 100) }} п.п.</div></div>{% endif %}
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <div class="card-head"><h2>Где сеть загружена сильнее всего?</h2><p>Средняя загрузка по кантонам за период.</p></div>
+      {{ fig_ranking|safe if fig_ranking else '<div class="empty-state">Нет данных</div>'|safe }}
+      <p class="card-foot">Столбец 15 % — в среднем занята каждая седьмая работающая точка. Кантоны отсортированы по убыванию.</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Когда пик?</h2><p>Загрузка по дням недели и часам (время швейцарское) — {{ scope }}.</p></div>
+      {{ fig_heatmap|safe if fig_heatmap else '<div class="empty-state">Нет данных</div>'|safe }}
+      <p class="card-foot">Чем темнее клетка, тем больше занятых точек. Наведите курсор, чтобы увидеть значение.</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Насколько точен прогноз на 6 часов вперёд?</h2><p>{{ fc_label }}, последние 3 недели проверочного периода.</p></div>
+      {{ fig_forecast|safe if fig_forecast else '<div class="empty-state">Модели ещё не обучены: <code>evadvisor train</code></div>'|safe }}
+      <p class="card-foot">Чем ближе линия прогноза к факту, тем лучше. Пунктир — наивный прогноз «как неделю назад», с ним сравнивается модель.</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Влияет ли погода?</h2><p>Загрузка в часы с разной температурой — {{ scope }}.</p></div>
+      {{ fig_weather|safe if fig_weather else '<div class="empty-state">Нет данных о погоде</div>'|safe }}
+      <p class="card-foot">В тёплые часы загрузка выше: больше поездок, а не «машинам жарко». Связь не обязательно причинная.</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Где не работают точки?</h2><p>Доля точек в статусе «не работает» по кантонам.</p></div>
+      {{ fig_oos|safe if fig_oos else '<div class="empty-state">Нет данных</div>'|safe }}
+      <p class="card-foot">Высокие значения могут означать и поломки, и сбой передачи статусов оператором (например, Базель в конце 2025 г.).</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Можно ли доверять прогнозам?</h2><p>Проверка на данных, которые модели не видели при обучении.</p></div>
+      <h3 class="small" style="margin:8px 0 4px">Прогноз загрузки кантона на 1–24 ч</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Модель</th><th class="num">Ошибка, п.п.</th><th class="num">Лучше базовой</th></tr></thead><tbody>
+        {% for m in metrics_canton %}<tr {% if loop.first %}class="best"{% endif %}><td>{{ m.label }}</td>
+          <td class="num">±{{ "%.2f"|format(m.mae * 100) }}</td>
+          <td class="num">{% if m.mase is not none %}{% if m.mase < 1 %}на {{ "%.0f"|format((1 - m.mase) * 100) }} %{% elif m.mase > 1 %}хуже на {{ "%.0f"|format((m.mase - 1) * 100) }} %{% else %}—{% endif %}{% endif %}</td></tr>
+        {% else %}<tr><td colspan="3" class="muted">нет результатов</td></tr>{% endfor %}
+      </tbody></table></div>
+      {% if metrics_horizon %}<p class="small muted" style="margin:6px 0 0">По горизонту (ошибка рабочей модели / базовой):
+        {% for h in metrics_horizon %}{{ h.h }} ч — ±{{ "%.1f"|format(h.a2 * 100) }} / ±{{ "%.1f"|format(h.a0 * 100) }}{% if not loop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+
+      <h3 class="small" style="margin:14px 0 4px">Вероятность, что точка будет свободна через 5–60 мин</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Модель</th><th class="num" title="Средняя квадратичная ошибка вероятности, меньше — лучше">Brier ↓</th>
+          <th class="num" title="Насколько хорошо модель отличает свободные точки от занятых, больше — лучше">AUC ↑</th>
+          <th class="num" title="Насколько предсказанные проценты совпадают с фактическими, меньше — лучше">Калибровка ↓</th></tr></thead><tbody>
+        {% for m in metrics_availability %}<tr {% if m.model_name == availability_selected %}class="best"{% endif %}>
+          <td>{{ m.label }}{% if m.model_name == availability_selected %} <span class="pill good">в работе</span>{% endif %}</td>
+          <td class="num">{{ "%.4f"|format(m.brier) }}</td><td class="num">{{ "%.3f"|format(m.auc) }}</td><td class="num">{{ "%.3f"|format(m.ece) }}</td></tr>
+        {% else %}<tr><td colspan="4" class="muted">нет результатов</td></tr>{% endfor %}
+      </tbody></table></div>
+
+      {% if metrics_recommender %}
+      <h3 class="small" style="margin:14px 0 4px">Рекомендации: была ли станция свободна к приезду</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Стратегия выбора станции</th><th class="num">1-я станция</th><th class="num">Одна из трёх</th></tr></thead><tbody>
+        {% for m in metrics_recommender %}<tr {% if m.model_name == 'model' %}class="best"{% endif %}><td>{{ m.label }}</td>
+          <td class="num">{{ "%.1f"|format(m.hit1 * 100) }} %</td><td class="num">{{ "%.1f"|format(m.hit3 * 100) }} %</td></tr>{% endfor %}
+      </tbody></table></div>
+      <p class="small muted" style="margin:6px 0 0">{{ (metrics_recommender[0].n or 0)|int }} смоделированных поездок ноября–декабря 2025 г.</p>
+      {% endif %}
+    </section>
+  </div>
+  {% endif %}
 </div>
-
-<div class="grid2">
-  <section class="card"><h3>Где сеть загружена сильнее всего?</h3><p class="q">Средняя загрузка по кантонам и классам мощности за период.</p>
-    {{ fig_ranking|safe if fig_ranking else '<p class="empty">Нет данных</p>'|safe }}</section>
-  <section class="card"><h3>Когда пики?</h3><p class="q">Загрузка по дню недели и часу (местное время){% if canton %}, {{ canton }}{% endif %}.</p>
-    {{ fig_heatmap|safe if fig_heatmap else '<p class="empty">Нет данных</p>'|safe }}</section>
-  <section class="card"><h3>Насколько точен прогноз на 6 часов вперёд?</h3>
-    <p class="q">Факт и прогноз за последние 3 недели тестового периода ({{ fc_label }}), горизонт 6 ч.</p>
-    {{ fig_forecast|safe if fig_forecast else '<p class="empty">Модели ещё не обучены: <span class="mono">evadvisor train</span>.</p>'|safe }}</section>
-  <section class="card"><h3>Влияет ли погода?</h3><p class="q">Загрузка в часы с разной температурой воздуха.</p>
-    {{ fig_weather|safe if fig_weather else '<p class="empty">Нет данных о погоде</p>'|safe }}</section>
-  <section class="card"><h3>Где неисправности мешают спросу?</h3><p class="q">Средняя доля точек в статусе OutOfService.</p>
-    {{ fig_oos|safe if fig_oos else '<p class="empty">Нет данных</p>'|safe }}</section>
-  <section class="card"><h3>Можно ли доверять прогнозу?</h3>
-    <p class="q">Ошибка на тесте (временная валидация без утечек). MASE &lt; 1 — лучше базовой модели «неделю назад».</p>
-    <div class="scroll"><table class="compact"><thead><tr><th>Модель загрузки</th><th>MAE, п.п.</th><th>RMSE, п.п.</th><th>MASE</th><th>Фолдов</th></tr></thead><tbody>
-    {% for m in metrics_canton %}<tr><td>{{ m.model_name }}</td><td>{{ "%.2f"|format(m.mae * 100) }}</td><td>{{ "%.2f"|format(m.rmse * 100) }}</td>
-      <td>{{ "%.3f"|format(m.mase) if m.mase is not none else "—" }}</td><td>{{ m.folds }}</td></tr>{% else %}<tr><td colspan="5" class="muted">нет результатов</td></tr>{% endfor %}
-    </tbody></table></div>
-    {% if metrics_horizon %}<div class="scroll"><table class="compact"><thead><tr><th>Горизонт</th><th>MAE A0</th><th>MAE A1</th><th>MAE A2</th></tr></thead><tbody>
-    {% for h in metrics_horizon %}<tr><td>{{ h.slice.replace('h=', '') }} ч</td><td>{{ "%.2f"|format(h.a0 * 100) }}</td><td>{{ "%.2f"|format(h.a1 * 100) }}</td><td>{{ "%.2f"|format(h.a2 * 100) }}</td></tr>{% endfor %}
-    </tbody></table></div>{% endif %}
-    <div class="scroll"><table class="compact"><thead><tr><th>Модель «точка свободна»</th><th>Brier ↓</th><th>ROC-AUC ↑</th><th>ECE ↓</th><th>Log loss ↓</th></tr></thead><tbody>
-    {% for m in metrics_availability %}<tr><td>{{ m.model_name }}</td><td>{{ "%.4f"|format(m.brier) }}</td><td>{{ "%.3f"|format(m.auc) }}</td>
-      <td>{{ "%.4f"|format(m.ece) }}</td><td>{{ "%.4f"|format(m.logloss) }}</td></tr>{% else %}<tr><td colspan="5" class="muted">нет результатов</td></tr>{% endfor %}
-    </tbody></table></div>
-    {% if metrics_recommender %}
-    <p class="q" style="margin-top:.8rem">Бэктест рекомендателя на тесте (ноябрь–декабрь 2025): доля запросов, где к приезду
-      на рекомендованной станции по факту была свободная подходящая точка.</p>
-    <div class="scroll"><table class="compact"><thead><tr><th>Стратегия</th><th>Hit@1</th><th>Hit@3</th><th>Запросов</th></tr></thead><tbody>
-    {% set names = {'nearest': 'Ближайшая совместимая', 'nearest_free': 'Ближайшая, свободная сейчас', 'model': 'Рекомендатель (модель B)'} %}
-    {% for m in metrics_recommender %}<tr><td>{{ names.get(m.model_name, m.model_name) }}</td><td>{{ "%.1f"|format(m.hit1 * 100) }} %</td>
-      <td>{{ "%.1f"|format(m.hit3 * 100) }} %</td><td>{{ m.n|int }}</td></tr>{% endfor %}
-    </tbody></table></div>
-    {% endif %}
-  </section>
-</div>
-{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // фильтры применяются сразу при выборе
+  document.querySelectorAll("#filters select").forEach((s) => s.addEventListener("change", () => s.form.submit()));
+</script>
 {% endblock %}

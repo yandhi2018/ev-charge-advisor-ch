@@ -1,29 +1,43 @@
 {% extends "base.html" %}
 {% block title %}Происхождение показателя{% endblock %}
 {% block content %}
-<h2>Происхождение показателя</h2>
-<p class="muted">Цепочка «источник → загрузка → преобразование → слой хранения → витрина → показатель → дашборд»
-  из <span class="mono">ops.lineage_edge</span> и фактические последние запуски загрузчиков.</p>
-<form class="filters" method="get">
-  <label>Показатель или дашборд
-    <select name="node">{% for c in choices %}<option value="{{ c.node_id }}" {% if c.node_id == node %}selected{% endif %}>{{ c.title }}</option>{% endfor %}</select>
-  </label>
-  <button type="submit">Показать</button>
-</form>
-<section class="card"><div class="mermaid">{{ mermaid }}</div></section>
-<section class="card"><h3>Узлы цепочки</h3>
-  <div class="scroll"><table class="compact"><thead><tr><th>Тип</th><th>Узел</th><th>Где реализовано</th><th>Последний успешный запуск</th></tr></thead><tbody>
-  {% for n in nodes %}<tr><td>{{ n.node_type }}</td><td>{{ n.title }}<br><span class="mono muted">{{ n.node_id }}</span></td>
-    <td class="mono">{{ n.ref or "" }}</td>
-    <td class="small">{% if n.last_run %}{{ n.last_run.finished_at.strftime('%d.%m.%Y %H:%M') }}, {{ n.last_run.status }},
-      строк {{ n.last_run.rows_written }}<br><span class="mono muted">run {{ n.last_run.run_id|string|truncate(13, True, '') }} · {{ n.last_run.raw_path or "" }}</span>{% endif %}</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Откуда берётся показатель</h1>
+      <p>Путь данных от источника до экрана: загрузка → сырые файлы → преобразования → хранилище → витрина →
+        показатель → дашборд. Для загрузчиков показан последний успешный запуск.</p>
+    </div>
+  </div>
+  <form class="toolbar" method="get">
+    <label class="field" style="max-width:420px"><span class="label">Показатель или страница</span>
+      <select name="node" onchange="this.form.submit()">{% for c in choices %}<option value="{{ c.node_id }}" {% if c.node_id == node %}selected{% endif %}>{{ c.title }}</option>{% endfor %}</select>
+    </label>
+    <noscript><button class="btn" type="submit">Показать</button></noscript>
+  </form>
+  <div class="stack">
+    <section class="card"><div class="mermaid-wrap"><div class="mermaid">{{ mermaid }}</div></div>
+      <p class="card-foot">Схему можно прокрутить по горизонтали. Каждая стрелка — зависимость: данные слева нужны для расчёта справа.</p></section>
+    <section class="card">
+      <div class="card-head"><h2>Этапы цепочки</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Этап</th><th>Что это</th><th>Где реализовано</th><th>Последний запуск</th></tr></thead><tbody>
+        {% set types = {'source': 'источник', 'loader': 'загрузка', 'raw': 'сырые файлы', 'stg': 'staging', 'transform': 'преобразование',
+                        'core': 'хранилище', 'mart': 'витрина', 'model': 'модель', 'metric': 'показатель', 'dashboard': 'экран'} %}
+        {% for n in nodes %}<tr><td><span class="lineage-type">{{ types.get(n.node_type, n.node_type) }}</span></td>
+          <td>{{ n.title }}</td><td><code>{{ n.ref or "" }}</code></td>
+          <td class="small">{% if n.last_run %}{{ n.last_run.finished_at|local('%d.%m.%Y %H:%M') }}, строк {{ "{:,}".format(n.last_run.rows_written).replace(',', ' ') }}
+            <br><span class="muted mono">run {{ n.last_run.run_id|string|truncate(13, True, '') }}</span>{% endif %}</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", flowchart: { useMaxWidth: true } });
+  mermaid.initialize({ startOnLoad: true, theme: window.isDarkTheme() ? "dark" : "neutral",
+                       flowchart: { useMaxWidth: false, nodeSpacing: 30, rankSpacing: 50 } });
+  document.addEventListener("themechange", () => location.reload());
 </script>
 {% endblock %}

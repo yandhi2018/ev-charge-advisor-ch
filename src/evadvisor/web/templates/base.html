@@ -2,40 +2,77 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Где зарядиться{% endblock %} · EV Charge Advisor CH</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-  <link rel="stylesheet" href="/static/app.css">
+  <script>
+    // тема до отрисовки страницы, чтобы не было вспышки
+    try { const t = localStorage.getItem("evadvisor.theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/app.css?v=2">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><text x='16' y='23' font-size='20' text-anchor='middle' fill='white'>⚡</text></svg>">
   {% block head %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
-    <nav class="container-fluid">
-      <ul><li><a href="/" class="brand">⚡ Где зарядиться</a></li></ul>
-      <ul>
-        <li><a href="/" {% if page == 'driver' %}aria-current="page"{% endif %}>Водителю</a></li>
-        <li><a href="/analytics" {% if page == 'analytics' %}aria-current="page"{% endif %}>Аналитика</a></li>
-        <li><a href="/operations" {% if page == 'operations' %}aria-current="page"{% endif %}>Данные</a></li>
-        <li><a href="/lineage" {% if page == 'lineage' %}aria-current="page"{% endif %}>Происхождение</a></li>
-        <li><a href="/about" {% if page == 'about' %}aria-current="page"{% endif %}>О системе</a></li>
-      </ul>
+    <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">⚡</span><span>Где зарядиться</span></a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="/" {% if page == 'driver' %}aria-current="page"{% endif %}>Подбор станции</a>
+      <a href="/analytics" {% if page == 'analytics' %}aria-current="page"{% endif %}>Загрузка сети</a>
+      <a href="/operations" {% if page == 'operations' %}aria-current="page"{% endif %}>Состояние данных</a>
+      <a href="/lineage" {% if page == 'lineage' %}aria-current="page"{% endif %}>Происхождение</a>
+      <a href="/about" {% if page == 'about' %}aria-current="page"{% endif %}>О системе</a>
     </nav>
+    <button class="icon-btn theme-toggle" id="theme-toggle" type="button" title="Светлая / тёмная тема" aria-label="Переключить тему">◐</button>
   </header>
-  <main class="{% block main_class %}container{% endblock %}">
+  <main>
     {% block content %}{% endblock %}
   </main>
-  <footer class="container small muted">
-    Данные: BFE / ich-tanke-strom.ch (opendata.swiss), swisstopo, Open-Meteo (CC BY 4.0),
-    Open EV Data (KilowattApp), архив статусов R. Santarromana. Учебный проект РТУ МИРЭА.
+  {% block footer %}
+  <footer>
+    Данные: BFE / ich-tanke-strom.ch (opendata.swiss), swisstopo, Open-Meteo (CC BY 4.0), Open EV Data (KilowattApp),
+    архив статусов R. Santarromana. Учебный проект РТУ МИРЭА.
   </footer>
-  {% block scripts %}{% endblock %}
+  {% endblock %}
   <script>
-    // Plotly считает ширину до раскладки CSS-сетки: пересчитываем после загрузки и при изменении окна
-    function resizePlots() {
-      if (window.Plotly) document.querySelectorAll(".js-plotly-plot").forEach((p) => Plotly.Plots.resize(p));
-    }
-    window.addEventListener("load", () => setTimeout(resizePlots, 50));
-    window.addEventListener("resize", resizePlots);
+    (() => {
+      const root = document.documentElement;
+      const css = (v) => getComputedStyle(root).getPropertyValue(v).trim();
+      const isDark = () => root.dataset.theme === "dark" ||
+        (!root.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+      // Графики Plotly: цвета текста, сетки и рядов берутся из токенов темы
+      window.themePlots = () => {
+        if (!window.Plotly) return;
+        const series = [css("--series-1"), css("--series-2"), css("--series-3")];
+        document.querySelectorAll(".js-plotly-plot").forEach((p) => {
+          const upd = { "font.color": css("--text-2"), "xaxis.gridcolor": css("--grid"), "yaxis.gridcolor": css("--grid"),
+                        "xaxis.tickfont.color": css("--muted"), "yaxis.tickfont.color": css("--muted"),
+                        "legend.font.color": css("--text-2"), "xaxis.linecolor": css("--border-strong"),
+                        "yaxis.linecolor": css("--border-strong") };
+          Plotly.relayout(p, upd);
+          (p.data || []).forEach((tr, i) => {
+            const slot = tr.meta && tr.meta.slot;
+            if (slot !== undefined) {
+              const c = series[slot];
+              Plotly.restyle(p, tr.type === "bar" ? { "marker.color": c } : { "line.color": c, "marker.color": c }, [i]);
+            }
+          });
+          Plotly.Plots.resize(p);
+        });
+      };
+      const btn = document.getElementById("theme-toggle");
+      btn.addEventListener("click", () => {
+        const next = isDark() ? "light" : "dark";
+        root.dataset.theme = next;
+        try { localStorage.setItem("evadvisor.theme", next); } catch (e) {}
+        window.themePlots();
+        document.dispatchEvent(new CustomEvent("themechange", { detail: next }));
+      });
+      window.addEventListener("load", () => setTimeout(window.themePlots, 30));
+      let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(() => {
+        if (window.Plotly) document.querySelectorAll(".js-plotly-plot").forEach((p) => Plotly.Plots.resize(p)); }, 120); });
+      window.isDarkTheme = isDark;
+    })();
   </script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

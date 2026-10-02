@@ -1,68 +1,92 @@
 {% extends "base.html" %}
-{% block title %}Где зарядиться{% endblock %}
-{% block main_class %}container-fluid{% endblock %}
+{% block title %}Подбор зарядной станции{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 {% endblock %}
+{% block footer %}{% endblock %}
 {% block content %}
 <div class="driver">
-  <section class="panel">
-    <form id="search" autocomplete="off">
-      <label for="vehicle">Ваш автомобиль
-        <div class="suggest">
-          <input id="vehicle" placeholder="Начните вводить: Tesla Model 3, Skoda Enyaq…" required>
-          <ul id="vehicle-list" hidden></ul>
-        </div>
-      </label>
-      <p class="hint" id="vehicle-info">Разъёмы и предельная мощность берутся из каталога.</p>
-
-      <label for="address">Где вы</label>
-      <div class="row">
-        <div class="suggest">
-          <input id="address" placeholder="Адрес или населённый пункт">
-          <ul id="address-list" hidden></ul>
-        </div>
-        <button type="button" id="locate" class="secondary outline" title="Определить моё местоположение">📍 Я здесь</button>
+  <section class="panel" aria-label="Поиск станции">
+    <div class="panel-inner">
+      <div class="intro">
+        <h1>Где зарядиться</h1>
+        <p>Подберём станции в Швейцарии с подходящим разъёмом и покажем, где к вашему приезду, скорее всего, будет свободно.</p>
       </div>
-      <p class="hint">…или кликните на карте.</p>
 
-      <fieldset>
-        <legend class="small">Сколько зарядить</legend>
-        <div class="chips">
-          {% for e in energy_options %}
-          <label><input type="radio" name="energy" value="{{ e }}" {% if e == default_energy %}checked{% endif %}> {{ e }} кВт·ч</label>
-          {% endfor %}
+      <form id="search" class="stack" autocomplete="off" novalidate>
+        <div class="step">
+          <div class="step-title"><span class="step-num">1</span><label for="vehicle">Ваш автомобиль</label></div>
+          <div class="combo">
+            <input id="vehicle" type="search" placeholder="Марка и модель, например Tesla Model 3" role="combobox"
+                   aria-autocomplete="list" aria-expanded="false" aria-controls="vehicle-list">
+            <ul id="vehicle-list" role="listbox" hidden></ul>
+          </div>
+          <div id="vehicle-info" class="vehicle-card"></div>
+          <div class="chips" id="popular" aria-label="Популярные модели"></div>
         </div>
-      </fieldset>
 
-      <details class="more">
-        <summary>Дополнительно</summary>
-        <div class="chips">
-          <label><input type="checkbox" id="dc_only"> только быстрая (DC)</label>
-          <label><input type="checkbox" id="open_24h"> только 24/7</label>
-          <label><input type="checkbox" id="public_only"> только открытый доступ</label>
-          <label><input type="checkbox" id="has_cable" checked> есть свой кабель Type 2</label>
+        <div class="step">
+          <div class="step-title"><span class="step-num">2</span><label for="address">Где вы сейчас</label></div>
+          <div class="combo">
+            <div class="input-row">
+              <input id="address" type="search" placeholder="Адрес или город" role="combobox"
+                     aria-autocomplete="list" aria-expanded="false" aria-controls="address-list">
+              <button type="button" id="locate" class="btn" title="Определить моё местоположение">📍<span class="visually-hidden">Моё местоположение</span></button>
+            </div>
+            <ul id="address-list" role="listbox" hidden></ul>
+          </div>
+          <span class="hint">Можно просто нажать на карту.</span>
         </div>
+
+        <div class="step">
+          <div class="step-title"><span class="step-num">3</span><span id="energy-label">Сколько энергии нужно</span></div>
+          <div class="segmented" role="radiogroup" aria-labelledby="energy-label">
+            {% for e in energy_options %}
+            <input type="radio" name="energy" id="e{{ e }}" value="{{ e }}" {% if e == default_energy %}checked{% endif %}>
+            <label for="e{{ e }}">{{ e }} кВт·ч</label>
+            {% endfor %}
+          </div>
+          <span class="hint">20 кВт·ч — это примерно 100–130 км пути.</span>
+        </div>
+
+        <details id="filters">
+          <summary class="small"><strong>Фильтры</strong> <span id="filters-count" class="muted"></span></summary>
+          <div class="chips" style="margin-top:10px">
+            <label class="chip"><input type="checkbox" id="dc_only"> Только быстрая зарядка</label>
+            <label class="chip"><input type="checkbox" id="open_24h"> Круглосуточно</label>
+            <label class="chip"><input type="checkbox" id="public_only"> Открытый доступ</label>
+            <label class="chip"><input type="checkbox" id="has_cable" checked> Есть свой кабель Type 2</label>
+          </div>
+        </details>
+
+        <button type="submit" id="go" class="btn btn-primary btn-block">Найти станции</button>
+        <div id="form-error" role="alert"></div>
+      </form>
+
+      <section id="results" aria-live="polite">
+        <div class="empty-state">
+          <div class="big">🔌</div>
+          Выберите автомобиль и место —<br>покажем до 5 станций, где удобнее всего зарядиться.
+        </div>
+      </section>
+
+      <details class="small muted">
+        <summary>Как мы выбираем станции</summary>
+        <p style="margin-top:8px">Показываем только станции с разъёмом вашего автомобиля. Реальная мощность — меньшее из
+          мощности станции и того, что принимает автомобиль. Вероятность свободной точки к приезду считает модель по
+          текущим статусам станций, времени суток и истории их занятости за 2025 год. Порядок — по ожидаемому
+          времени: дорога, риск подождать и сама зарядка.
+          {% if routing_engine != 'osrm' %}Время в пути оценено по расстоянию с поправкой на дороги.{% endif %}</p>
       </details>
-
-      <button type="submit" id="go">Найти станции</button>
-    </form>
-
-    <div id="status" aria-live="polite"></div>
-    <div id="results"></div>
-    <details class="small muted">
-      <summary>Как мы считаем</summary>
-      <p>Подходят только станции с разъёмом вашего автомобиля. Эффективная мощность — меньшее из мощности точки
-        и предела автомобиля. Вероятность свободной точки к приезду считает модель машинного обучения по текущим
-        статусам, истории занятости станции, времени суток, дню недели и погоде. Станции упорядочены по
-        ожидаемому времени: дорога + риск ожидания + время зарядки выбранного объёма.
-        {% if routing_engine != 'osrm' %}Расстояние оценивается по прямой с поправкой на дороги.{% endif %}</p>
-    </details>
+    </div>
   </section>
-  <div id="map" aria-label="Карта станций"></div>
+  <div class="map-wrap">
+    <div id="map" aria-label="Карта станций"></div>
+    <div class="map-hint" id="map-hint">Нажмите на карту, чтобы указать, где вы</div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/static/driver.js"></script>
+<script src="/static/driver.js?v=2"></script>
 {% endblock %}

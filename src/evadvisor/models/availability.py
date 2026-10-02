@@ -8,8 +8,10 @@
   B0 «статус не изменится» — 0,95, если точка свободна сейчас, иначе 0,05;
   B1 исторический профиль точки (день недели × час прибытия), запасной — профиль кантона и класса;
   B2 марковская модель переходов: P(Available через Δ | статус сейчас, класс, интервал часов);
-  B3 LightGBM с изотонической калибровкой на валидационном окне.
-Профили и таблица переходов считаются только по обучающему окну.
+  B3 LightGBM с изотонической калибровкой; признак p_markov — прогноз B2 (стекинг).
+Профили и таблица переходов считаются только по обучающему окну. Валидационное окно делится пополам:
+первая половина — ранняя остановка и калибровка B3, вторая — выбор рабочей модели (B2 или B3) для
+рекомендателя. Тестовое окно в выборе не участвует.
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ TASK = "availability"
 STATUS_CODES = {"Available": 0, "Occupied": 1, "OutOfService": 2, "Reserved": 3, "Unknown": 4}
 FEATURES = ["status_code", "delta_min", "hour_local", "dow", "is_weekend", "is_holiday", "class_dc",
             "power_kw", "n_total_other", "n_free_other", "share_free_other", "p_free_evse", "p_free_group",
-            "temp_c", "precip_mm", "snow_cm", "canton_cat"]
+            "temp_c", "precip_mm", "snow_cm", "canton_cat", "p_markov"]
 CANTONS = sorted(settings()["cantons"].keys())
 
 
@@ -198,7 +200,22 @@ def evaluate(force_samples: bool = False) -> dict:
         log.info("B: train %s, valid %s, test %s", len(train), len(valid), len(test))
 
         markov = fit_markov(train)
-        model, iso = fit_b3(train, valid)
+        for df in (train, valid, test):
+            df["p_markov"] = predict_b2(df, markov)
+        mid = (pd.Timestamp(cfg["valid_from"]) + (pd.Timestamp(cfg["valid_to"]) - pd.Timestamp(cfg["valid_from"])) / 2)
+        calib = valid[valid["t0"] < mid.tz_localize("UTC")]
+        select = valid[valid["t0"] >= mid.tz_localize("UTC")]
+        model, iso = fit_b3(train, calib)
+        # выбор рабочей модели по второй половине валидации (тест не используется)
+        sel_scores = {
+            "B2_markov": classification_metrics(select["y"].to_numpy(), select["p_markov"].to_numpy())["brier"],
+            "B3_lightgbm": classification_metrics(
+                select["y"].to_numpy(), iso.predict(model.predict_proba(select[FEATURES])[:, 1]))["brier"],
+        }
+        selected = min(sel_scores, key=sel_scores.get)
+        for name, brier in sel_scores.items():
+            save_metrics(TASK, name, 1, {"brier": brier}, "selection_window")
+        log.info("выбор модели на валидации: %s → %s", sel_scores, selected)
         y = test["y"].to_numpy()
         preds = {
             "B0_persistence": predict_b0(test),
@@ -240,9 +257,11 @@ def evaluate(force_samples: bool = False) -> dict:
         markov.to_parquet(art / "availability_markov.parquet")
         (art / "availability_meta.json").write_text(json.dumps({
             "features": FEATURES, "cantons": CANTONS, "status_codes": STATUS_CODES,
-            "trained": date.today().isoformat(), "metrics": summary}, ensure_ascii=False, indent=1),
+            "trained": date.today().isoformat(), "selected": selected, "selection_brier": sel_scores,
+            "metrics": summary}, ensure_ascii=False, indent=1),
             encoding="utf-8")
-        register_model(TASK, "B3_lightgbm", {"features": FEATURES, "best_iteration": model.best_iteration_},
-                       summary["B3_lightgbm"], str(art / "availability_lgbm.txt"), frame_hash(samples.head(100000)))
+        register_model(TASK, selected, {"features": FEATURES, "best_iteration": model.best_iteration_,
+                                        "selection_brier": sel_scores},
+                       summary[selected], str(art / "availability_lgbm.txt"), frame_hash(samples.head(100000)))
         ctx.rows_written = len(test)
         return summary

@@ -2,75 +2,143 @@
 {% block title %}Состояние данных{% endblock %}
 {% block head %}<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>{% endblock %}
 {% block content %}
-<h2>Состояние данных</h2>
-<p class="muted">Для инженера данных: загрузки, свежесть, качество, изменения схем и справочников. Служебный слой
-  <span class="mono">ops</span>, обновляется при каждом открытии страницы.</p>
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Состояние данных</h1>
+      <p>Для инженера данных: что и когда загрузилось, что не прошло проверки качества и что изменилось в источниках.
+        Время — по часам этого компьютера.</p>
+    </div>
+    <a class="btn" href="">↻ Обновить</a>
+  </div>
 
-<form class="filters" method="get">
-  <label>Период
-    <select name="days">{% for d in [1, 7, 14, 30, 90] %}<option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ d }} дн.</option>{% endfor %}</select>
-  </label>
-  <label>Источник
-    <select name="source"><option value="">Все</option>{% for s in sources %}<option {% if s == source %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
-  </label>
-  <label>Проверки
-    <select name="severity"><option value="">Все</option>
-      <option value="error" {% if severity == 'error' %}selected{% endif %}>Блокирующие</option>
-      <option value="warn" {% if severity == 'warn' %}selected{% endif %}>Предупреждения</option></select>
-  </label>
-  <button type="submit">Показать</button>
-</form>
+  {% if running %}
+  <div class="banner" role="status">
+    <span class="pill run">выполняется</span>
+    <span>{% for r in running %}<strong>{{ r.name }}</strong> — с {{ r.started_at|local('%H:%M') }}{% if not loop.last %}; {% endif %}{% endfor %}</span>
+    <a class="btn" href="">Обновить страницу</a>
+  </div>
+  {% endif %}
 
-<section class="card"><h3>Всё ли загрузилось и насколько свежие данные?</h3>
-  <p class="q">Последний запуск каждого источника и возраст последней успешной загрузки относительно допустимого.</p>
-  <div class="scroll"><table class="compact"><thead><tr><th>Источник</th><th>Последний запуск</th><th>Статус</th><th>Успешно, ч назад</th><th>Допустимо, ч</th><th>Строк получено / записано / отклонено</th><th>Ошибка</th></tr></thead><tbody>
-  {% for r in sources_last %}<tr>
-    <td>{{ r.source }}</td><td>{{ r.started_at.strftime('%d.%m %H:%M') }}</td>
-    <td><span class="status st-{{ r.status }}">{{ r.status }}</span></td>
-    <td>{% if r.ok_age_h is not none %}<span class="status st-{{ 'ok' if r.fresh else 'warn' }}">{{ "%.1f"|format(r.ok_age_h) }}</span>{% else %}—{% endif %}</td>
-    <td>{{ r.sla_h or "—" }}</td>
-    <td>{{ "{:,}".format(r.rows_received).replace(',', ' ') }} / {{ "{:,}".format(r.rows_written).replace(',', ' ') }} / {{ r.rows_rejected }}</td>
-    <td class="small">{{ r.error_text or "" }}</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
+  <section class="stack">
+    <div class="card">
+      <div class="card-head"><h2>Всё ли загрузилось?</h2>
+        <p>{% if n_problems %}Требуют внимания: {{ n_problems }}.{% else %}Все источники в порядке.{% endif %}
+          Плитка показывает последний запуск и когда данные последний раз успешно обновлялись.</p></div>
+      <div class="tiles">
+        {% for t in tiles %}
+        <div class="tile">
+          <div class="name">{{ t.name }}</div>
+          <div><span class="pill {{ t.status_cls }}">{{ t.status_label }}</span>
+            {% if t.stale %}<span class="pill warn">устарело</span>{% endif %}</div>
+          <div class="meta">Запуск {{ t.started_at|local }} · успешно {{ t.age }}{% if t.sla %} (норма — не реже раза в {{ (t.sla / 24)|round|int if t.sla >= 48 else t.sla }} {{ 'дн.' if t.sla >= 48 else 'ч' }}){% endif %}</div>
+          {% if t.rows_received %}<div class="meta">Получено {{ "{:,}".format(t.rows_received).replace(',', ' ') }}, записано {{ "{:,}".format(t.rows_written).replace(',', ' ') }}{% if t.rows_rejected %}, отклонено {{ t.rows_rejected }}{% endif %}</div>{% endif %}
+          {% if t.error_text and t.status != 'success' %}<div class="err">{{ t.error_text }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
 
-<div class="grid2">
-  <section class="card"><h3>Нет ли аномалий объёма?</h3><p class="q">Число полученных строк по запускам (логарифмическая шкала), цвет — статус.</p>
-    {{ fig_runs|safe if fig_runs else '<p class="empty">Запусков за период нет</p>'|safe }}</section>
-  <section class="card"><h3>Где дыры в истории?</h3><p class="q">Полнота архива статусов по месяцам и доля точек с метаданными.</p>
-    {{ fig_coverage|safe if fig_coverage else '<p class="empty">Архив не обработан</p>'|safe }}</section>
+    <form class="toolbar" method="get" id="filters">
+      <label class="field"><span class="label">Период</span>
+        <select name="days">{% for d, t in [(1, 'Сутки'), (7, 'Неделя'), (14, '2 недели'), (30, 'Месяц'), (90, '3 месяца')] %}<option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+      </label>
+      <label class="field"><span class="label">Источник</span>
+        <select name="source"><option value="">Все</option>{% for s in sources %}<option value="{{ s }}" {% if s == source %}selected{% endif %}>{{ source_names.get(s, s) }}</option>{% endfor %}</select>
+      </label>
+      <label class="field"><span class="label">Проверки качества</span>
+        <select name="severity"><option value="">Все</option>
+          <option value="error" {% if severity == 'error' %}selected{% endif %}>Только блокирующие</option>
+          <option value="warn" {% if severity == 'warn' %}selected{% endif %}>Только предупреждения</option></select>
+      </label>
+      <noscript><button class="btn" type="submit">Показать</button></noscript>
+    </form>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-head"><h2>Нет ли аномалий объёма?</h2><p>Сколько строк получил каждый запуск (шкала логарифмическая).</p></div>
+        {{ fig_runs|safe if fig_runs else '<div class="empty-state">Запусков за период нет</div>'|safe }}
+        <p class="card-foot">Точка резко ниже обычного уровня для того же источника — повод проверить выгрузку.</p>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Где дыры в истории?</h2><p>Полнота архива статусов по месяцам.</p></div>
+        {{ fig_coverage|safe if fig_coverage else '<div class="empty-state">Архив не обработан</div>'|safe }}
+        <p class="card-foot">Провалы синей линии — месяцы без данных в источнике (10.2024 неполный, 12.2024 пуст).
+          Оранжевая — доля точек, для которых известны кантон и мощность.</p>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><h2>Что не так с качеством данных?</h2>
+        <p>Последняя проверка: {{ dq_last|local('%d.%m %H:%M') if dq_last else 'не запускалась' }}.
+          Блокирующие проверки останавливают обновление витрин, предупреждения — только сообщают.</p></div>
+      <div class="dq-summary">
+        <span class="pill good">пройдено: {{ dq_counts.ok }}</span>
+        <span class="pill warn">предупреждений: {{ dq_counts.warn }}</span>
+        <span class="pill bad">блокирующих ошибок: {{ dq_counts.error }}</span>
+      </div>
+      {% for c in dq %}
+      <details class="dq-item">
+        <summary>
+          {% if c.state == 'ok' %}<span class="pill good">пройдена</span>
+          {% elif c.state == 'error' %}<span class="pill bad">ошибка</span>
+          {% elif c.state == 'warn' %}<span class="pill warn">предупреждение</span>
+          {% else %}<span class="pill neutral">не запускалась</span>{% endif %}
+          <span class="desc">{{ c.description }}</span>
+          <span class="small muted">{{ c.type_ru }} · <code>{{ c.table_name }}</code>{% if c.failed_rows %} · нарушений: {{ c.failed_rows }}{% endif %}</span>
+        </summary>
+        {% if c.sample and c.sample != '[]' %}<div class="sample">{{ c.sample }}</div>{% else %}<div class="small muted" style="margin:6px 0 0 1em">Нарушений нет. Код проверки: <code>{{ c.check_id }}</code></div>{% endif %}
+      </details>
+      {% endfor %}
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-head"><h2>Менялись ли форматы источников?</h2><p>Каждая строка — новая структура полей, которую мы увидели.</p></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Источник</th><th class="num">Полей</th><th>Впервые</th><th>Последний раз</th></tr></thead><tbody>
+          {% for s in schemas %}<tr><td>{{ s.name }}{% if s.versions > 1 %} <span class="pill warn">менялся</span>{% endif %}</td>
+            <td class="num">{{ s.n_fields }}</td><td>{{ s.first_seen|local('%d.%m.%Y') }}</td><td>{{ s.last_seen|local('%d.%m.%Y %H:%M') }}</td></tr>{% endfor %}
+        </tbody></table></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Как меняется сеть и что отклонено?</h2><p>История изменений точек (SCD2) и записи в карантине за период.</p></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>День</th><th>Изменение</th><th class="num">Точек</th></tr></thead><tbody>
+          {% set ru = {'insert': 'новые', 'update': 'изменились', 'deactivate': 'исчезли', 'reactivate': 'вернулись'} %}
+          {% for s in scd2[:10] %}<tr><td>{{ s.day.strftime('%d.%m.%Y') }}</td><td>{{ ru.get(s.change_type, s.change_type) }}</td><td class="num">{{ s.n }}</td></tr>
+          {% else %}<tr><td colspan="3" class="muted">изменений нет</td></tr>{% endfor %}
+        </tbody></table></div>
+        <div class="table-wrap" style="margin-top:12px"><table>
+          <thead><tr><th>Причина отклонения</th><th class="num">Записей</th></tr></thead><tbody>
+          {% for q in quarantine %}<tr><td>{{ q.reason }} <span class="small muted">· <code>{{ q.table_name }}</code></span></td><td class="num">{{ q.n }}</td></tr>
+          {% else %}<tr><td colspan="2" class="muted">карантин пуст</td></tr>{% endfor %}
+        </tbody></table></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><h2>Можно ли верить вероятностям для водителя?</h2>
+        <p>Если модель говорит «свободна с вероятностью 70 %», то на проверке такие точки действительно должны быть свободны примерно в 70 % случаев.
+          Журнал рекомендаций: {{ rec_log.n }} запросов, за сутки — {{ rec_log.n_day }}.</p></div>
+      {{ fig_calibration|safe if fig_calibration else '<div class="empty-state">Модель ещё не обучена</div>'|safe }}
+      <p class="card-foot">Чем ближе линия к пунктирной диагонали, тем честнее проценты.</p>
+    </section>
+
+    <details class="card">
+      <summary><strong>Журнал запусков за период</strong> <span class="small muted">({{ runs_table|length }})</span></summary>
+      <div class="table-wrap" style="margin-top:10px"><table>
+        <thead><tr><th>Источник</th><th>Статус</th><th>Начало</th><th class="num">Получено</th><th class="num">Записано</th><th class="num">Отклонено</th><th>Ошибка</th></tr></thead><tbody>
+        {% for r in runs_table %}<tr><td>{{ r.name }}</td><td><span class="pill {{ r.status_label[1] }}">{{ r.status_label[0] }}</span></td>
+          <td>{{ r.started_at|local }}</td><td class="num">{{ r.rows_received }}</td><td class="num">{{ r.rows_written }}</td>
+          <td class="num">{{ r.rows_rejected }}</td><td class="small">{{ r.error_text or "" }}</td></tr>{% endfor %}
+      </tbody></table></div>
+    </details>
+  </section>
 </div>
-
-<section class="card"><h3>Что сломано и где?</h3><p class="q">Последний результат каждой проверки качества. Блокирующие (error) останавливают обновление витрин.</p>
-  {{ fig_dq|safe if fig_dq else '' }}
-  <div class="scroll"><table class="compact"><thead><tr><th>Проверка</th><th>Тип</th><th>Уровень</th><th>Таблица</th><th>Результат</th><th>Нарушений</th><th>Пример</th></tr></thead><tbody>
-  {% for c in dq_latest %}<tr title="{{ c.description }}">
-    <td>{{ c.description }}<br><span class="mono muted">{{ c.check_id }}</span></td><td>{{ c.check_type }}</td><td>{{ c.severity }}</td>
-    <td class="mono">{{ c.table_name }}</td>
-    <td>{% if c.passed is none %}—{% elif c.passed %}<span class="status st-ok">пройдена</span>{% else %}<span class="status st-{{ 'error' if c.severity == 'error' else 'warn' }}">не пройдена</span>{% endif %}</td>
-    <td>{{ c.failed_rows if c.failed_rows is not none else "—" }}</td>
-    <td class="mono small">{{ (c.sample or "")[:160] }}</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
-
-<div class="grid2">
-  <section class="card"><h3>Не поменял ли источник формат?</h3><p class="q">Каждая строка — новая структура полей источника.</p>
-    <table class="compact"><thead><tr><th>Источник</th><th>Хэш структуры</th><th>Полей</th><th>Впервые</th><th>Последний раз</th></tr></thead><tbody>
-    {% for s in schemas %}<tr><td>{{ s.source }}</td><td class="mono">{{ s.hash }}</td><td>{{ s.n_fields }}</td>
-      <td>{{ s.first_seen.strftime('%d.%m.%Y %H:%M') }}</td><td>{{ s.last_seen.strftime('%d.%m.%Y %H:%M') }}</td></tr>{% endfor %}
-    </tbody></table></section>
-  <section class="card"><h3>Как меняется сеть и что отклонено?</h3><p class="q">Изменения справочника точек (SCD2) и записи в карантине за период.</p>
-    <table class="compact"><thead><tr><th>День</th><th>Изменение</th><th>Точек</th></tr></thead><tbody>
-    {% for s in scd2[:12] %}<tr><td>{{ s.day.strftime('%d.%m.%Y') }}</td><td>{{ s.change_type }}</td><td>{{ s.n }}</td></tr>{% else %}<tr><td colspan="3" class="muted">нет изменений</td></tr>{% endfor %}
-    </tbody></table>
-    <table class="compact"><thead><tr><th>Таблица</th><th>Причина</th><th>Записей</th></tr></thead><tbody>
-    {% for q in quarantine %}<tr><td class="mono">{{ q.table_name }}</td><td>{{ q.reason }}</td><td>{{ q.n }}</td></tr>{% else %}<tr><td colspan="3" class="muted">карантин пуст</td></tr>{% endfor %}
-    </tbody></table></section>
-</div>
-
-<section class="card"><h3>Не деградировала ли модель доступности?</h3>
-  <p class="q">Диаграмма надёжности на тесте: точки на диагонали — предсказанная вероятность совпадает с фактической долей.
-  Журнал рекомендаций: {{ rec_log.n }} запросов, за сутки {{ rec_log.n_day }}.</p>
-  {{ fig_calibration|safe if fig_calibration else '<p class="empty">Модель ещё не обучена</p>'|safe }}
-</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll("#filters select").forEach((s) => s.addEventListener("change", () => s.form.submit()));
+</script>
 {% endblock %}

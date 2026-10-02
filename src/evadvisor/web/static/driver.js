@@ -5,174 +5,267 @@
     get(k) { try { return JSON.parse(localStorage.getItem("evadvisor." + k)); } catch { return null; } },
     set(k, v) { try { localStorage.setItem("evadvisor." + k, JSON.stringify(v)); } catch { /* приватный режим */ } },
   };
-  const PLUGS = { TYPE2_SOCKET: "Type 2 (свой кабель)", TYPE2_CABLE: "Type 2", TYPE1_CABLE: "Type 1", CCS2: "CCS",
-                  CCS1: "CCS1", CHADEMO: "CHAdeMO", TESLA: "Tesla" };
-  const STATUS_RU = { Available: "свободна", Occupied: "занята", OutOfService: "неисправна", Unknown: "нет данных",
-                      Reserved: "забронирована", EvseNotFound: "нет данных" };
-  const probColor = (p) => (p >= 0.7 ? "#0ca30c" : p >= 0.4 ? "#fab219" : "#d03b3b");
-  const probWord = (p) => (p >= 0.7 ? "высокая" : p >= 0.4 ? "средняя" : "низкая");
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmt = (x, d = 0) => Number(x).toLocaleString("ru-RU", { maximumFractionDigits: d, minimumFractionDigits: d });
+  const PLUGS = { TYPE2_SOCKET: "Type 2 (свой кабель)", TYPE2_CABLE: "Type 2", TYPE1_CABLE: "Type 1", CCS2: "CCS",
+                  CCS1: "CCS1", CHADEMO: "CHAdeMO", TESLA: "Tesla Supercharger" };
+  const STATUS_RU = { Available: "свободна", Occupied: "занята", OutOfService: "не работает", Unknown: "нет данных",
+                      Reserved: "забронирована", EvseNotFound: "нет данных" };
+  const POPULAR = ["Tesla Model 3", "Tesla Model Y", "Skoda Enyaq", "Volkswagen ID.3", "Renault Zoe"];
+  // Вероятность: цвет + словесная оценка (цвет никогда не единственный носитель смысла)
+  const prob = (p) => p >= 0.7 ? { c: "#0ca30c", w: "скорее свободна" } :
+                      p >= 0.4 ? { c: "#fab219", w: "может быть занята" } : { c: "#d03b3b", w: "скорее занята" };
 
-  // ---------- карта
-  const map = L.map("map").setView([46.8, 8.2], 8);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(map);
-  let me = null, markers = [], routeLine = null, lastItems = [];
-  const meIcon = L.divIcon({ className: "", html: '<div class="me-pin"></div>', iconSize: [16, 16] });
+  // ---------------------------------------------------------------- карта
+  const map = L.map("map", { zoomControl: true }).setView([46.8, 8.2], 8);
+  const tiles = {
+    light: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'],
+    dark: ["https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'],
+  };
+  let layer = null;
+  function setTiles() {
+    if (layer) layer.remove();
+    const [url, attr] = window.isDarkTheme() ? tiles.dark : tiles.light;
+    layer = L.tileLayer(url, { maxZoom: 19, attribution: attr }).addTo(map);
+  }
+  setTiles();
+  document.addEventListener("themechange", setTiles);
+
+  let me = null, markers = [], routeLine = null, items = [];
+  const meIcon = L.divIcon({ className: "", html: '<div class="me-pin"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
 
   function setPosition(lat, lon, label, fly = true) {
-    const pos = { lat, lon, label: label || `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+    const pos = { lat, lon, label: label || `Точка на карте (${lat.toFixed(4)}, ${lon.toFixed(4)})` };
     store.set("pos", pos);
     $("address").value = pos.label;
-    if (me) me.setLatLng([lat, lon]); else me = L.marker([lat, lon], { icon: meIcon, title: "Вы здесь" }).addTo(map);
-    if (fly) map.setView([lat, lon], Math.max(map.getZoom(), 12));
+    if (me) me.setLatLng([lat, lon]);
+    else me = L.marker([lat, lon], { icon: meIcon, title: "Вы здесь", zIndexOffset: 1000 }).addTo(map);
+    $("map-hint").hidden = true;
+    if (fly) map.flyTo([lat, lon], Math.max(map.getZoom(), 13), { duration: 0.6 });
   }
   map.on("click", (e) => setPosition(e.latlng.lat, e.latlng.lng));
 
-  // ---------- автомобиль
+  // ---------------------------------------------------------------- комбобокс
+  function combo(input, list, { search, render, pick, minLength = 1, delay = 0 }) {
+    let found = [], active = -1, timer = null;
+    const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
+    const draw = () => {
+      list.innerHTML = found.map((it, i) => `<li role="option" data-i="${i}" aria-selected="${i === active}">${render(it)}</li>`).join("");
+      list.hidden = found.length === 0;
+      input.setAttribute("aria-expanded", String(!list.hidden));
+    };
+    const choose = (i) => { if (found[i]) { pick(found[i]); close(); } };
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q.length < minLength) { found = []; close(); return; }
+      timer = setTimeout(async () => { found = await search(q); active = found.length ? 0 : -1; draw(); }, delay);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown") { active = Math.min(found.length - 1, active + 1); draw(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { active = Math.max(0, active - 1); draw(); e.preventDefault(); }
+      else if (e.key === "Enter") { choose(active); e.preventDefault(); }
+      else if (e.key === "Escape") close();
+    });
+    list.addEventListener("mousedown", (e) => { const li = e.target.closest("li"); if (li) { e.preventDefault(); choose(+li.dataset.i); } });
+    input.addEventListener("blur", () => setTimeout(close, 150));
+  }
+
+  // ---------------------------------------------------------------- автомобиль
   let vehicles = [], vehicle = store.get("vehicle");
+  const matchVehicles = (q) => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    return vehicles.filter((v) => words.every((w) => v.label.toLowerCase().includes(w))).slice(0, 15);
+  };
+  function showVehicle(v) {
+    const plugs = [...new Set(v.plugs.map((p) => PLUGS[p] || p))];
+    $("vehicle-info").innerHTML = plugs.map((p) => `<span class="tag">🔌 ${esc(p)}</span>`).join("") +
+      `<span class="tag">AC до ${fmt(v.ac)} кВт</span>` +
+      (v.dc ? `<span class="tag">DC до ${fmt(v.dc)} кВт</span>` : `<span class="tag">без быстрой зарядки</span>`);
+  }
+  function pickVehicle(v) { vehicle = v; store.set("vehicle", v); $("vehicle").value = v.label; showVehicle(v); $("popular").hidden = true; }
   fetch("/api/vehicles").then((r) => r.json()).then((list) => {
     vehicles = list;
-    if (vehicle) { $("vehicle").value = vehicle.label; showVehicle(vehicle); }
+    if (vehicle) { $("vehicle").value = vehicle.label; showVehicle(vehicle); $("popular").hidden = true; }
+    $("popular").innerHTML = POPULAR.filter((p) => matchVehicles(p).length)
+      .map((p) => `<button type="button" class="chip" data-q="${esc(p)}">${esc(p)}</button>`).join("");
   });
-  function showVehicle(v) {
-    const plugs = [...new Set(v.plugs.map((p) => PLUGS[p] || p))].join(", ");
-    $("vehicle-info").textContent = `${plugs}; AC до ${v.ac} кВт` + (v.dc ? `, DC до ${v.dc} кВт` : ", без быстрой зарядки");
-  }
-  function suggest(input, listEl, items, onPick, render) {
-    listEl.innerHTML = items.map((it, i) => `<li data-i="${i}">${esc(render(it))}</li>`).join("");
-    listEl.hidden = items.length === 0;
-    listEl.onclick = (e) => { const li = e.target.closest("li"); if (li) { onPick(items[+li.dataset.i]); listEl.hidden = true; } };
-  }
-  $("vehicle").addEventListener("input", (e) => {
-    const words = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
-    const found = words.length ? vehicles.filter((v) => words.every((w) => v.label.toLowerCase().includes(w))).slice(0, 12) : [];
-    suggest($("vehicle"), $("vehicle-list"), found, (v) => {
-      vehicle = v; store.set("vehicle", v); $("vehicle").value = v.label; showVehicle(v);
-    }, (v) => v.label);
+  $("popular").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    $("vehicle").value = b.dataset.q; $("vehicle").focus(); $("vehicle").dispatchEvent(new Event("input"));
   });
+  combo($("vehicle"), $("vehicle-list"), {
+    search: async (q) => matchVehicles(q),
+    render: (v) => `<span>${esc(v.label)}</span><span class="sub">AC ${fmt(v.ac)}${v.dc ? " · DC " + fmt(v.dc) : ""} кВт</span>`,
+    pick: pickVehicle,
+  });
+  $("vehicle").addEventListener("input", () => { if (vehicle && $("vehicle").value !== vehicle.label) { vehicle = null; $("vehicle-info").innerHTML = ""; } });
 
-  // ---------- адрес
-  let addrTimer = null;
-  $("address").addEventListener("input", (e) => {
-    clearTimeout(addrTimer);
-    const q = e.target.value.trim();
-    if (q.length < 3) { $("address-list").hidden = true; return; }
-    addrTimer = setTimeout(async () => {
-      const r = await fetch("/api/geocode?q=" + encodeURIComponent(q));
-      const items = r.ok ? await r.json() : [];
-      suggest($("address"), $("address-list"), items, (it) => setPosition(it.lat, it.lon, it.label), (it) => it.label);
-    }, 300);
+  // ---------------------------------------------------------------- место
+  combo($("address"), $("address-list"), {
+    minLength: 3, delay: 250,
+    search: async (q) => { const r = await fetch("/api/geocode?q=" + encodeURIComponent(q)); return r.ok ? r.json() : []; },
+    render: (it) => `<span>${esc(it.label)}</span>`,
+    pick: (it) => setPosition(it.lat, it.lon, it.label),
   });
   $("locate").addEventListener("click", () => {
-    if (!navigator.geolocation) { say("Браузер не поддерживает геолокацию — укажите адрес или кликните на карте."); return; }
-    say("Определяем местоположение…");
+    if (!navigator.geolocation) { showError("Браузер не умеет определять местоположение — введите адрес или нажмите на карту."); return; }
+    $("locate").setAttribute("aria-busy", "true");
     navigator.geolocation.getCurrentPosition(
-      (p) => { setPosition(p.coords.latitude, p.coords.longitude, "Моё местоположение"); say(""); },
-      () => say("Не удалось определить местоположение — укажите адрес или кликните на карте."),
+      (p) => { $("locate").removeAttribute("aria-busy"); setPosition(p.coords.latitude, p.coords.longitude, "Моё местоположение"); },
+      () => { $("locate").removeAttribute("aria-busy"); showError("Не удалось определить местоположение — введите адрес или нажмите на карту."); },
       { enableHighAccuracy: true, timeout: 10000 });
   });
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".suggest")) { $("vehicle-list").hidden = true; $("address-list").hidden = true; }
-  });
   const saved = store.get("pos");
-  if (saved) setPosition(saved.lat, saved.lon, saved.label);
+  if (saved) setPosition(saved.lat, saved.lon, saved.label, false), map.setView([saved.lat, saved.lon], 12);
 
-  // ---------- поиск
-  function say(html) { $("status").innerHTML = html ? `<p class="small">${html}</p>` : ""; }
+  // ---------------------------------------------------------------- фильтры
+  const filterIds = ["dc_only", "open_24h", "public_only"];
+  const updateFilterCount = () => {
+    const n = filterIds.filter((id) => $(id).checked).length + ($("has_cable").checked ? 0 : 1);
+    $("filters-count").textContent = n ? `· выбрано ${n}` : "";
+  };
+  [...filterIds, "has_cable"].forEach((id) => $(id).addEventListener("change", updateFilterCount));
+
+  // ---------------------------------------------------------------- поиск
+  function showError(text) { $("form-error").innerHTML = text ? `<div class="notice">${esc(text)}</div>` : ""; }
   $("search").addEventListener("submit", async (e) => {
     e.preventDefault();
+    showError("");
     const pos = store.get("pos");
-    if (!vehicle) { say("Выберите автомобиль из списка."); return; }
-    if (!pos) { say("Укажите, где вы: адрес, «Я здесь» или клик на карте."); return; }
+    if (!vehicle) { showError("Выберите автомобиль из списка — начните вводить марку."); $("vehicle").focus(); return; }
+    if (!pos) { showError("Укажите, где вы: введите адрес, нажмите 📍 или кликните на карту."); $("address").focus(); return; }
     $("go").setAttribute("aria-busy", "true");
-    say("Получаем текущие статусы станций и считаем вероятности…");
-    $("results").innerHTML = "";
+    $("go").textContent = "Ищем станции…";
+    $("results").innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+    if (matchMedia("(max-width: 960px)").matches) $("results").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
-      const body = {
-        vehicle_id: vehicle.id, lat: pos.lat, lon: pos.lon,
-        energy_kwh: +document.querySelector("input[name=energy]:checked").value,
-        dc_only: $("dc_only").checked, open_24h: $("open_24h").checked,
-        public_only: $("public_only").checked, has_cable: $("has_cable").checked,
-      };
-      const r = await fetch("/api/recommend", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify(body) });
+      const r = await fetch("/api/recommend", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vehicle_id: vehicle.id, lat: pos.lat, lon: pos.lon,
+          energy_kwh: +document.querySelector("input[name=energy]:checked").value,
+          dc_only: $("dc_only").checked, open_24h: $("open_24h").checked,
+          public_only: $("public_only").checked, has_cable: $("has_cable").checked,
+        }),
+      });
       const data = await r.json();
-      if (!r.ok) throw new Error(data.detail || "Ошибка сервера");
+      if (!r.ok) throw new Error(data.detail || "ошибка сервера");
       render(data, pos);
     } catch (err) {
-      say("Не удалось подобрать станции: " + esc(err.message));
+      $("results").innerHTML = `<div class="notice">Не удалось подобрать станции: ${esc(err.message)}. Попробуйте ещё раз.</div>`;
     } finally {
       $("go").removeAttribute("aria-busy");
+      $("go").textContent = "Найти станции";
     }
   });
 
   function render(data, pos) {
     markers.forEach((m) => m.remove()); markers = [];
     if (routeLine) { routeLine.remove(); routeLine = null; }
-    lastItems = data.items;
-    const notes = [];
-    if (data.status_age_min != null) notes.push(`Статусы станций: ${Math.round(data.status_age_min)} мин назад.`);
-    if (data.temperature_c != null) notes.push(`Температура ~${Math.round(data.temperature_c)} °C.`);
-    say(notes.join(" ") + (data.warnings.length ? data.warnings.map((w) => `<div class="notice">${esc(w)}</div>`).join("") : ""));
-    if (!data.items.length) { $("results").innerHTML = '<p class="empty">Подходящих станций не найдено.</p>'; return; }
-
-    $("results").innerHTML = `<div class="legend"><span><i class="dot" style="background:#0ca30c"></i>высокая вероятность ≥ 70 %</span>
-      <span><i class="dot" style="background:#fab219"></i>средняя</span><span><i class="dot" style="background:#d03b3b"></i>низкая &lt; 40 %</span></div>` +
-      data.items.map((it, i) => `
-      <article class="result" data-i="${i}">
-        <h4><span><span class="rank">${it.rank}</span>${esc(it.name || it.street)}</span><span class="total">≈ ${Math.round(it.total_min)} мин</span></h4>
-        <div class="meta">${esc(it.street || "")}, ${esc(it.postal_code || "")} ${esc(it.city || "")} · ${esc(it.operator)}</div>
-        <div>${it.plugs.map((p) => `<span class="badge">${esc(PLUGS[p] || p)}</span>`).join("")}
-             <span class="badge">${it.power_class} ${it.effective_kw ? Math.round(it.effective_kw) + " кВт" : "мощность ?"}</span>
-             <span class="badge">${it.distance_km.toFixed(1)} км · ${Math.round(it.eta_min)} мин</span>
-             ${it.is_open_24h ? '<span class="badge">24/7</span>' : ""}</div>
-        <div class="prob" title="Вероятность, что к приезду будет свободна хотя бы одна подходящая точка">
-          <span>Свободна к приезду:</span><span class="bar"><span style="width:${(it.p_station * 100).toFixed(0)}%;background:${probColor(it.p_station)}"></span></span>
-          <strong>${(it.p_station * 100).toFixed(0)} %</strong><span class="muted">(${probWord(it.p_station)})</span>
-        </div>
-        <p class="why">${esc(it.explanation)}</p>
-        <div class="details" hidden></div>
-      </article>`).join("");
+    items = data.items;
+    const meta = [];
+    if (data.status_age_min != null) meta.push(`статусы ${Math.round(data.status_age_min)} мин назад`);
+    if (data.temperature_c != null) meta.push(`${fmt(data.temperature_c)} °C`);
+    const warnings = data.warnings.map((w) => `<div class="notice">${esc(w)}</div>`).join("");
+    if (!items.length) {
+      $("results").innerHTML = warnings + `<div class="empty-state"><div class="big">🔍</div>Подходящих станций не нашлось.
+        Попробуйте убрать фильтры или выбрать другое место.</div>`;
+      return;
+    }
+    $("results").innerHTML = `
+      <div class="results-head"><h2>Лучшие станции рядом</h2><span class="small muted">${meta.join(" · ")}</span></div>
+      ${warnings}
+      <div class="legend" style="margin:8px 0 10px">
+        <span><i class="dot" style="background:#0ca30c"></i>скорее свободна</span>
+        <span><i class="dot" style="background:#fab219"></i>может быть занята</span>
+        <span><i class="dot" style="background:#d03b3b"></i>скорее занята</span>
+      </div>
+      ${items.map(card).join("")}`;
 
     const bounds = [[pos.lat, pos.lon]];
-    data.items.forEach((it, i) => {
-      const icon = L.divIcon({ className: "", iconSize: [26, 26],
-        html: `<div class="marker-pin" style="background:${probColor(it.p_station)}">${it.rank}</div>` });
-      const m = L.marker([it.lat, it.lon], { icon, title: it.name }).addTo(map)
-        .bindTooltip(`${it.rank}. ${esc(it.name)} — свободна с вероятностью ${(it.p_station * 100).toFixed(0)} %`);
+    items.forEach((it, i) => {
+      const pr = prob(it.p_station);
+      const icon = L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 30],
+        html: `<div class="marker-pin" style="background:${pr.c}"><span>${it.rank}</span></div>` });
+      const m = L.marker([it.lat, it.lon], { icon, title: it.name, riseOnHover: true }).addTo(map)
+        .bindTooltip(`<b>${it.rank}. ${esc(it.name)}</b><br>≈ ${Math.round(it.total_min)} мин · ${pr.w} (${Math.round(it.p_station * 100)} %)`);
       m.on("click", () => select(i, true));
       markers.push(m); bounds.push([it.lat, it.lon]);
     });
-    map.fitBounds(bounds, { padding: [40, 40] });
-    document.querySelectorAll(".result").forEach((el) => el.addEventListener("click", () => select(+el.dataset.i, false)));
+    map.flyToBounds(bounds, { padding: [50, 50], duration: 0.6, maxZoom: 15 });
+    document.querySelectorAll(".result").forEach((el) => {
+      const i = +el.dataset.i;
+      el.addEventListener("click", (e) => { if (!e.target.closest("a")) select(i, false); });
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter") select(i, false); });
+      el.addEventListener("mouseenter", () => highlight(i, true));
+      el.addEventListener("mouseleave", () => highlight(i, false));
+    });
+  }
+
+  function card(it, i) {
+    const pr = prob(it.p_station);
+    const plugs = [...new Set(it.plugs.map((p) => PLUGS[p] || p))].join(", ");
+    const power = it.effective_kw ? `${fmt(it.effective_kw)} кВт` : "мощность не указана";
+    return `
+      <article class="result" data-i="${i}" tabindex="0" aria-label="${it.rank}. ${esc(it.name)}">
+        <div class="result-top">
+          <span class="rank" style="background:${pr.c}">${it.rank}</span>
+          <div><h3>${esc(it.name)}</h3><div class="addr">${esc([it.street, [it.postal_code, it.city].filter(Boolean).join(" ")].filter(Boolean).join(", "))} · ${esc(it.operator)}</div></div>
+          <div class="total"><div class="t">≈ ${Math.round(it.total_min)} мин</div><div class="c">дорога + зарядка</div></div>
+        </div>
+        <div class="facts">
+          <span class="tag">🔌 ${esc(plugs)}</span>
+          <span class="tag">⚡ ${it.power_class === "DC" ? "быстрая" : "обычная"}, ${power}</span>
+          <span class="tag">🚗 ${fmt(it.distance_km, 1)} км · ${Math.round(it.eta_min)} мин</span>
+          ${it.is_open_24h ? '<span class="tag">24/7</span>' : ""}
+        </div>
+        <div class="prob">
+          <span>К приезду ${pr.w}</span><strong>${Math.round(it.p_station * 100)} %</strong>
+          <span class="bar"><span style="width:${(it.p_station * 100).toFixed(0)}%;background:${pr.c}"></span></span>
+        </div>
+        <div class="details" hidden></div>
+      </article>`;
+  }
+
+  function highlight(i, on) {
+    const el = markers[i] && markers[i].getElement();
+    if (el) el.querySelector(".marker-pin")?.classList.toggle("hl", on);
   }
 
   async function select(i, scroll) {
-    const it = lastItems[i], pos = store.get("pos");
+    const it = items[i], pos = store.get("pos");
     document.querySelectorAll(".result").forEach((el) => el.classList.toggle("active", +el.dataset.i === i));
     const card = document.querySelector(`.result[data-i="${i}"]`);
     if (scroll) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    const r = await fetch(`/api/route?lat=${pos.lat}&lon=${pos.lon}&lat2=${it.lat}&lon2=${it.lon}`).then((x) => x.json());
-    if (routeLine) routeLine.remove();
-    routeLine = L.geoJSON(r.geometry, { style: { color: "#2a78d6", weight: 4, dashArray: r.straight ? "6 6" : null } }).addTo(map);
-    map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+    markers[i].openTooltip();
+    fetch(`/api/route?lat=${pos.lat}&lon=${pos.lon}&lat2=${it.lat}&lon2=${it.lon}`).then((x) => x.json()).then((r) => {
+      if (routeLine) routeLine.remove();
+      routeLine = L.geoJSON(r.geometry, { style: { color: getComputedStyle(document.documentElement).getPropertyValue("--accent"),
+        weight: 5, opacity: .85, dashArray: r.straight ? "8 8" : null } }).addTo(map);
+      map.flyToBounds(routeLine.getBounds(), { padding: [70, 70], duration: 0.5, maxZoom: 15 });
+    });
 
     const det = card.querySelector(".details");
-    if (!det.hidden) return;
-    const prof = await fetch(`/api/station/${it.station_id}/profile`).then((x) => x.json());
-    const bars = prof.hours.map((h) => `<div title="${h.hour_local}:00 — свободно ${(h.p_free * 100).toFixed(0)} %"
-        style="flex:1;align-self:end;height:${Math.max(4, h.p_free * 60)}px;background:#2a78d6;border-radius:3px 3px 0 0;margin:0 1px"></div>`).join("");
-    det.innerHTML = `
-      <table class="points"><thead><tr><th>Точка</th><th>Ток</th><th>кВт</th><th>Сейчас</th><th>К приезду</th></tr></thead><tbody>
-      ${it.points.map((p) => `<tr><td class="mono">${esc(p.evse_id)}</td><td>${p.power_class}</td><td>${p.power_kw ? Math.round(p.power_kw) : "?"}</td>
-        <td>${STATUS_RU[p.status_now] || p.status_now}</td><td>${(p.p_free * 100).toFixed(0)} %</td></tr>`).join("")}
-      </tbody></table>
-      <p class="small muted" style="margin:.4rem 0 .2rem">Обычно свободно по часам сегодня (${prof.source === "station" ? "эта станция" : "кантон"}):</p>
-      <div style="display:flex;height:64px;align-items:end">${bars || '<span class="muted small">нет истории</span>'}</div>
-      <div class="small muted" style="display:flex;justify-content:space-between"><span>0:00</span><span>12:00</span><span>23:00</span></div>
-      <a href="https://www.google.com/maps/dir/?api=1&destination=${it.lat},${it.lon}" target="_blank" rel="noopener">Открыть маршрут в картах ↗</a>`;
+    if (!det.hidden) { det.hidden = true; return; }
     det.hidden = false;
+    det.innerHTML = '<div class="small muted">Загружаем подробности…</div>';
+    const prof = await fetch(`/api/station/${it.station_id}/profile`).then((x) => x.json());
+    const nowH = new Date().getHours();
+    const hours = Array.from({ length: 24 }, (_, h) => prof.hours.find((x) => x.hour_local === h));
+    const bars = hours.map((h, k) => `<i class="${k === nowH ? "now" : ""}" title="${k}:00 — обычно свободно ${h ? Math.round(h.p_free * 100) : "?"} %"
+        style="height:${h ? Math.max(6, h.p_free * 100) : 4}%"></i>`).join("");
+    det.innerHTML = `
+      <p class="why">${esc(it.explanation)}</p>
+      <div class="table-wrap"><table class="points"><thead><tr><th>Точка</th><th>Ток</th><th class="num">кВт</th><th>Сейчас</th><th class="num">К приезду</th></tr></thead><tbody>
+      ${it.points.map((p) => `<tr><td class="mono">${esc(p.evse_id)}</td><td>${p.power_class}</td><td class="num">${p.power_kw ? fmt(p.power_kw) : "?"}</td>
+        <td>${STATUS_RU[p.status_now] || p.status_now}</td><td class="num">${Math.round(p.p_free * 100)} %</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="small muted" style="margin-top:8px">Обычно свободно по часам сегодня (${prof.source === "station" ? "эта станция" : "в среднем по кантону"}), оранжевым — текущий час:</div>
+      <div class="spark">${bars}</div><div class="spark-axis"><span>0:00</span><span>6:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+      <p style="margin:10px 0 0"><a href="https://www.google.com/maps/dir/?api=1&destination=${it.lat},${it.lon}" target="_blank" rel="noopener">Построить маршрут в Google Картах ↗</a></p>`;
   }
 })();

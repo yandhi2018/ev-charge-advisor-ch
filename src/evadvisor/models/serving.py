@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from evadvisor.config import artifacts_dir
-from evadvisor.models.availability import CANTONS, FEATURES, STATUS_CODES
+from evadvisor.models.availability import CANTONS, FEATURES, STATUS_CODES, predict_b2
 from evadvisor.models.common import calendar_features
 
 log = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ def _artifacts() -> tuple[lgb.Booster, object, dict] | None:
         with open(art / "availability_isotonic.pkl", "rb") as f:
             iso = pickle.load(f)
         meta = json.loads((art / "availability_meta.json").read_text(encoding="utf-8"))
+        meta["markov"] = pd.read_parquet(art / "availability_markov.parquet")
         return booster, iso, meta
     except (OSError, lgb.basic.LightGBMError) as exc:
         log.warning("модель доступности не найдена (%s): используется исторический профиль", exc)
@@ -35,7 +36,7 @@ def _artifacts() -> tuple[lgb.Booster, object, dict] | None:
 
 def model_version() -> str:
     a = _artifacts()
-    return f"B3_lightgbm@{a[2]['trained']}" if a else "B1_profile"
+    return f"{a[2].get('selected', 'B3_lightgbm')}@{a[2]['trained']}" if a else "B1_profile"
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -61,6 +62,9 @@ def predict(df: pd.DataFrame) -> np.ndarray:
     art = _artifacts()
     if art is None:
         return f["p_free_evse"].fillna(f["p_free_group"]).fillna(0.75).to_numpy()
-    booster, iso, _ = art
+    booster, iso, meta = art
+    f["p_markov"] = predict_b2(f, meta["markov"])
+    if meta.get("selected") == "B2_markov":       # рабочая модель выбрана на валидационном окне
+        return np.clip(f["p_markov"].to_numpy(), 0.0, 1.0)
     raw = booster.predict(f[FEATURES].astype(float))
     return np.clip(iso.predict(raw), 0.0, 1.0)

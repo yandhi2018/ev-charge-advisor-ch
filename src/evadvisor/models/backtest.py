@@ -60,9 +60,17 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
         globs = [(lake_dir("stg", "status_5min", f"month={m}") / "part-*.parquet").as_posix() for m in months]
         con = duck()
         con.register("ev", evse[["evse_id"]])
+        # Экономия памяти: выбираем моменты запросов заранее и загружаем только нужные слоты (t0 … t0 + 60 мин)
+        all_slots = con.sql(f"SELECT DISTINCT slot_ts FROM read_parquet({globs}) ORDER BY 1").df()["slot_ts"]
+        n_t0 = min(150, len(all_slots) - 13)
+        t0_list = all_slots.iloc[np.sort(rng.choice(len(all_slots) - 13, n_t0, replace=False))]
+        needed_slots = {t + pd.Timedelta(minutes=5 * k) for t in t0_list for k in range(13)}
+        needed = pd.DataFrame({"slot_ts": sorted(needed_slots)})
+        con.register("needed", needed)
         con.execute(f"""CREATE TABLE st AS SELECT s.evse_id, s.slot_ts, s.status
-                          FROM read_parquet({globs}) s SEMI JOIN ev USING (evse_id)""")
-        slots = con.sql("SELECT DISTINCT slot_ts FROM st ORDER BY 1").df()["slot_ts"].to_numpy()
+                          FROM read_parquet({globs}) s SEMI JOIN ev USING (evse_id)
+                         WHERE s.slot_ts IN (SELECT slot_ts FROM needed)""")
+        slots = t0_list.to_numpy()
         known = set(con.sql("SELECT DISTINCT evse_id FROM st").df()["evse_id"])
         evse = evse[evse["evse_id"].isin(known)].reset_index(drop=True)
         log.info("backtest: точек с историей %s, слотов %s", len(evse), len(slots))
@@ -76,7 +84,7 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
             s = stations[rng.integers(len(stations))]
             lat, lon = s[1] + rng.normal(0, 0.03), s[2] + rng.normal(0, 0.04)   # ~3 км от станции
             vp = VEHICLE_PROFILES[rng.choice(list(VEHICLE_PROFILES))]
-            t0 = pd.Timestamp(slots[rng.integers(len(slots) - 13)])
+            t0 = pd.Timestamp(slots[rng.integers(len(slots))])
             d = _haversine(lat, lon, evse["lat"].to_numpy(), evse["lon"].to_numpy())
             cand = evse[(d <= radius_km) & evse["plugs"].apply(lambda p, vp=vp: bool(set(p) & vp["plugs"]))
                         & ((evse["power_class"] == "AC") | (vp["dc"] is not None))].copy()
