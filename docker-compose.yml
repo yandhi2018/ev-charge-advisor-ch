@@ -1,0 +1,26 @@
+# PostgreSQL 17 для проекта (режим PG_MODE=docker в .env).
+# Запуск: docker compose up -d db   (scripts\init_db.ps1 делает это сам)
+# Данные БД хранятся в именованном томе evadvisor_pgdata и переживают перезапуск контейнера.
+services:
+  db:
+    image: postgres:17
+    container_name: evadvisor-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:?set PG_SUPERUSER_PASSWORD in .env}
+      POSTGRES_DB: postgres
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${PG_PORT:-55432}:5432"
+    volumes:
+      - evadvisor_pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "work_mem=64MB", "-c", "max_wal_size=2GB"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  evadvisor_pgdata:

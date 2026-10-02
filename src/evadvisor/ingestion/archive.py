@@ -106,7 +106,7 @@ def load_details() -> None:
         with session("engineer") as conn:
             copy_rows(conn, "stg.archive_details",
                       ["run_id", "evse_id", "lat", "lon", "postal_code", "power_kw", "power_type"],
-                      ["uuid", "text", "float8", "float8", "text", "numeric", "text"], rows)
+                      ["uuid", "text", "float8", "float8", "text", "float8", "text"], rows)
             conn.execute("CALL core.sp_build_archive_evse(%s)", (ctx.run_id,))
 
 

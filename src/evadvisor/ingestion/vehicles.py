@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 SOURCE = "vehicles"
 COLUMNS = ["run_id", "source", "ext_id", "brand", "model", "variant", "release_year", "battery_kwh",
            "ac_max_kw", "dc_max_kw", "plugs"]
-TYPES = ["uuid", "text", "text", "text", "text", "text", "int4", "numeric", "numeric", "numeric", "text[]"]
+TYPES = ["uuid", "text", "text", "text", "text", "text", "int4", "float8", "float8", "float8", "text[]"]
 
 
 def _num(value) -> float | None:

@@ -31,7 +31,7 @@ COLUMNS = [
 TYPES = [
     "uuid", "text", "text", "text", "text", "text", "text",
     "text", "text", "text", "text", "float8", "float8", "text", "text",
-    "bool", "text[]", "numeric", "text", "text[]", "timestamptz", "bpchar",
+    "bool", "text[]", "float8", "text", "text[]", "timestamptz", "text",
 ]
 POWER_TYPES = {"AC_1_PHASE", "AC_3_PHASE", "DC"}
 
@@ -79,6 +79,14 @@ def _name(rec: dict) -> str | None:
     return None
 
 
+def _s(value: Any) -> str | None:
+    """Строка без пробелов по краям; числа (почтовый индекс бывает int) приводятся к строке."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _ts(value: Any) -> datetime | None:
     if not value:
         return None
@@ -102,11 +110,10 @@ def to_row(run_id, operator: dict, rec: dict) -> list[Any]:
     }
     record_hash = hashlib.sha256(json.dumps(significant, sort_keys=True, default=str).encode()).hexdigest()
     return [
-        run_id, (rec.get("EvseID") or "").strip() or None, operator.get("OperatorID"),
+        run_id, _s(rec.get("EvseID")), operator.get("OperatorID"),
         operator.get("OperatorName"), rec.get("ChargingStationId"),
         rec.get("ChargingPoolID") or rec.get("ChargingPoolId"), _name(rec),
-        (addr.get("Street") or "").strip() or None, (addr.get("PostalCode") or "").strip() or None,
-        (addr.get("City") or "").strip() or None, addr.get("Country"), lat, lon,
+        _s(addr.get("Street")), _s(addr.get("PostalCode")), _s(addr.get("City")), addr.get("Country"), lat, lon,
         rec.get("Accessibility"), rec.get("AccessibilityLocation"),
         bool(rec.get("IsOpen24Hours")) if rec.get("IsOpen24Hours") is not None else None,
         plugs, power_kw, power_type, rec.get("AuthenticationModes") or [],
