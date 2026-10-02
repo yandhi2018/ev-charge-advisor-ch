@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci_superuser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      PG_HOST: 127.0.0.1
+      PG_PORT: "5432"
+      PG_DB: evadvisor
+      PG_ADMIN_USER: ev_admin
+      PG_ADMIN_PASSWORD: ci_admin
+      PG_ENGINEER_USER: app_engineer
+      PG_ENGINEER_PASSWORD: ci_engineer
+      PG_ANALYST_USER: app_analyst
+      PG_ANALYST_PASSWORD: ci_analyst
+      PG_DRIVER_USER: app_driver
+      PG_DRIVER_PASSWORD: ci_driver
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Установка зависимостей
+        run: pip install -e ".[dev]"
+      - name: Линтер
+        run: ruff check src tests
+      - name: Роль-владелец и база (аналог scripts/init_db.ps1)
+        env:
+          PGPASSWORD: ci_superuser
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE ev_admin LOGIN CREATEROLE PASSWORD 'ci_admin'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE evadvisor OWNER ev_admin"
+          psql -h 127.0.0.1 -U postgres -d evadvisor -c "ALTER SCHEMA public OWNER TO ev_admin; REVOKE ALL ON DATABASE evadvisor FROM PUBLIC"
+      - name: Схема БД (db/*.sql), повторно — проверка идемпотентности
+        run: |
+          evadvisor db migrate
+          evadvisor db migrate
+      - name: Тесты
+        run: pytest -q

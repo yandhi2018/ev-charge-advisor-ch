@@ -15,6 +15,8 @@ from typing import Literal
 import psycopg
 from psycopg.rows import dict_row
 
+import evadvisor.config  # noqa: F401  — загружает .env
+
 Role = Literal["admin", "engineer", "analyst", "driver"]
 
 

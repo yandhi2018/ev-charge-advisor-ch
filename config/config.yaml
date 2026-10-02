@@ -11,6 +11,11 @@ sources:
     known_partial_months: ["2024-10"]        # неполный месяц
     details_url: "https://raw.githubusercontent.com/rudolphsanta/Swiss-public-charging-dataset/main/ChargingStationDetails_19-02-2026.csv"
     timeout_s: [10, 300]
+    # Ресурсы DuckDB: месяц (~150 млн строк) обрабатывается частями по хэшу EvseID
+    n_parts: 16
+    duckdb_memory: "3GB"
+    duckdb_threads: 3
+    retries_on_oom: 1
 
   evse_status:
     url: "https://data.geo.admin.ch/ch.bfe.ladestellen-elektromobilitaet/status/ch.bfe.ladestellen-elektromobilitaet.json"

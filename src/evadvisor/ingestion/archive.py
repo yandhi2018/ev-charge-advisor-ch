@@ -32,7 +32,6 @@ from evadvisor.runlog import start_run
 log = logging.getLogger(__name__)
 SOURCE = "archive"
 SQL_DIR = ROOT / "db" / "duckdb"
-N_PARTS = 8
 
 
 def months(cfg: dict) -> list[str]:
@@ -51,8 +50,9 @@ def duck() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
     con.execute(f"SET temp_directory = '{tmp.as_posix()}'")
-    con.execute("SET memory_limit = '4GB'")
-    con.execute("SET threads = 4")
+    cfg = source_cfg(SOURCE)
+    con.execute(f"SET memory_limit = '{cfg.get('duckdb_memory', '3GB')}'")
+    con.execute(f"SET threads = {int(cfg.get('duckdb_threads', 3))}")
     con.execute("SET preserve_insertion_order = false")
     return con
 
@@ -184,10 +184,11 @@ def process_month(month: str, force: bool = False) -> None:
 
         con = duck()
         ctx.rows_received = con.sql(f"SELECT count(*) FROM read_parquet('{src.as_posix()}')").fetchone()[0]
-        for part in range(N_PARTS):   # части по хэшу EvseID: ограничивает память DuckDB
+        n_parts = int(cfg.get("n_parts", 16))
+        for part in range(n_parts):   # части по хэшу EvseID: ограничивает память DuckDB
             stg_part = stg_dir / f"part-{part}.parquet"
             con.execute(_sql("01_status_5min.sql", src=src.as_posix(), dst=stg_part.as_posix(),
-                             part=str(part), nparts=str(N_PARTS)))
+                             part=str(part), nparts=str(n_parts)))
             con.execute(_sql("02_status_episode.sql", src=stg_part.as_posix(),
                              dst=(epi_dir / f"part-{part}.parquet").as_posix()))
         stg_glob = (stg_dir / "part-*.parquet").as_posix()
@@ -274,12 +275,23 @@ def run(month: str | None = None, force: bool = False) -> None:
     load_details()
     todo = [month] if month else months(cfg)
     failed = []
+    retries = int(cfg.get("retries_on_oom", 1))
     for m in todo:
-        try:
-            process_month(m, force=force)
-        except Exception as exc:
-            log.error("archive %s: %s", m, exc)
-            failed.append(m)
+        for attempt in range(retries + 1):
+            try:
+                process_month(m, force=force)
+                break
+            except (duckdb.OutOfMemoryException, MemoryError) as exc:
+                import gc
+
+                gc.collect()
+                log.warning("archive %s: нехватка памяти (попытка %s): %s", m, attempt + 1, exc)
+                if attempt == retries:
+                    failed.append(m)
+            except Exception as exc:
+                log.error("archive %s: %s", m, exc)
+                failed.append(m)
+                break
     build_profiles()
     if failed:
         raise RuntimeError(f"archive months failed: {', '.join(failed)}")
