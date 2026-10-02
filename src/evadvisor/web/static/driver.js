@@ -18,18 +18,12 @@
 
   // ---------------------------------------------------------------- карта
   const map = L.map("map", { zoomControl: true }).setView([46.8, 8.2], 8);
-  const tiles = {
-    light: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'],
-    dark: ["https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'],
-  };
-  let layer = null;
-  function setTiles() {
-    if (layer) layer.remove();
-    const [url, attr] = window.isDarkTheme() ? tiles.dark : tiles.light;
-    layer = L.tileLayer(url, { maxZoom: 19, attribution: attr }).addTo(map);
-  }
+  // Подложка — OpenStreetMap (без ключа). В тёмной теме тайлы затемняются CSS-фильтром (класс map-dark),
+  // маркеры и маршрут лежат в других слоях и не меняют цвет.
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+  function setTiles() { $("map").classList.toggle("map-dark", window.isDarkTheme()); }
   setTiles();
   document.addEventListener("themechange", setTiles);
 
