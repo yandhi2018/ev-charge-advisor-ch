@@ -169,7 +169,7 @@ def fit_b3(train: pd.DataFrame, valid: pd.DataFrame) -> tuple[lgb.LGBMClassifier
     model = lgb.LGBMClassifier(n_estimators=2000, learning_rate=0.05, num_leaves=127, min_child_samples=200,
                                subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
                                random_state=seed(), verbose=-1)
-    model.fit(train[FEATURES], train["y"], eval_set=[(valid[FEATURES], valid["y"])],
+    model.fit(train[FEATURES], train["y"], eval_X=(valid[FEATURES],), eval_y=(valid["y"],),
               callbacks=[lgb.early_stopping(50, verbose=False)])
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.001, y_max=0.999)
     iso.fit(model.predict_proba(valid[FEATURES])[:, 1], valid["y"])

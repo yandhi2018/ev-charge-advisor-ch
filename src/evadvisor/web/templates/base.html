@@ -29,5 +29,13 @@
     Open EV Data (KilowattApp), архив статусов R. Santarromana. Учебный проект РТУ МИРЭА.
   </footer>
   {% block scripts %}{% endblock %}
+  <script>
+    // Plotly считает ширину до раскладки CSS-сетки: пересчитываем после загрузки и при изменении окна
+    function resizePlots() {
+      if (window.Plotly) document.querySelectorAll(".js-plotly-plot").forEach((p) => Plotly.Plots.resize(p));
+    }
+    window.addEventListener("load", () => setTimeout(resizePlots, 50));
+    window.addEventListener("resize", resizePlots);
+  </script>
 </body>
 </html>

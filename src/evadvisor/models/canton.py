@@ -110,7 +110,7 @@ def fit_lgbm(train: pd.DataFrame) -> lgb.LGBMRegressor:
     model = lgb.LGBMRegressor(n_estimators=1500, learning_rate=0.05, num_leaves=63, min_child_samples=50,
                               subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
                               random_state=seed(), verbose=-1)
-    model.fit(tr[FEATURES], tr["y"], eval_set=[(va[FEATURES], va["y"])],
+    model.fit(tr[FEATURES], tr["y"], eval_X=(va[FEATURES],), eval_y=(va["y"],),
               callbacks=[lgb.early_stopping(50, verbose=False)])
     return model
 

@@ -35,7 +35,7 @@ pio.templates.default = "evadvisor"
 
 def _html(fig: go.Figure, height: int = 320) -> str:
     fig.update_layout(height=height)
-    return pio.to_html(fig, full_html=False, include_plotlyjs=False,
+    return pio.to_html(fig, full_html=False, include_plotlyjs=False, default_width="100%",
                        config={"displaylogo": False, "responsive": True,
                                "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]})
 
@@ -107,7 +107,7 @@ def subject(period: str = "90", canton: str | None = None, power_class: str | No
                                    colorscale=[[i / (len(SEQ) - 1), c] for i, c in enumerate(SEQ)],
                                    xgap=2, ygap=2, colorbar=dict(tickformat=".0%", title=""),
                                    hovertemplate="%{y}, %{x}:00 — %{z:.1%}<extra></extra>"))
-        fig.update_layout(yaxis_autorange="reversed", xaxis_title="Час (местное время)")
+        fig.update_layout(yaxis_autorange="reversed")
         ctx["fig_heatmap"] = _html(fig, 300)
 
     # 3. Насколько точен прогноз на сутки? — факт и прогноз (последний тестовый фолд, горизонт 6 ч)
@@ -196,7 +196,7 @@ def subject(period: str = "90", canton: str | None = None, power_class: str | No
 
 # ====================================================================== операционный
 SLA_HOURS = {"evse_data": 48, "weather": 30, "evse_status": 24, "vehicles": 24 * 30, "postal": 24 * 90,
-             "archive": 24 * 365, "quality": 48}
+             "archive": 24 * 365, "quality": 48, "model": 24 * 35, "backtest": 24 * 35}
 
 
 def operational(days: int = 14, source: str | None = None, severity: str | None = None) -> dict:
@@ -218,7 +218,7 @@ def operational(days: int = 14, source: str | None = None, severity: str | None 
     for r in last:
         o = ok.get(r["source"], {})
         r["last_ok"], r["ok_age_h"] = o.get("last_ok"), o.get("ok_age_h")
-        sla = SLA_HOURS.get(r["source"].split("_")[0] if r["source"] not in SLA_HOURS else r["source"])
+        sla = SLA_HOURS.get(r["source"], SLA_HOURS.get(r["source"].split("_")[0]))
         r["sla_h"] = sla
         r["fresh"] = (r["ok_age_h"] is not None and sla is not None and r["ok_age_h"] <= sla)
     ctx["sources_last"] = last
@@ -279,9 +279,13 @@ def operational(days: int = 14, source: str | None = None, severity: str | None 
         {"d": days}, role=role))
     if not trend.empty:
         t = trend.groupby("t")[["failed", "total"]].sum().reset_index()
-        fig = go.Figure(go.Bar(x=t["t"], y=t["total"] - t["failed"], name="Пройдено", marker_color=STATUS["success"]))
-        fig.add_bar(x=t["t"], y=t["failed"], name="Не пройдено", marker_color=STATUS["failed"])
-        fig.update_layout(barmode="stack", yaxis_title="Проверок")
+        labels = [f"{x:%d.%m %H:%M}" for x in t["t"]]          # категории: прогоны проверок, а не непрерывное время
+        fig = go.Figure(go.Bar(x=labels, y=t["total"] - t["failed"], name="Пройдено", marker_color=STATUS["success"],
+                               hovertemplate="%{x}: пройдено %{y}<extra></extra>"))
+        fig.add_bar(x=labels, y=t["failed"], name="Не пройдено (предупреждения и ошибки)",
+                    marker_color=STATUS["partial"],
+                    hovertemplate="%{x}: не пройдено %{y}<extra></extra>")
+        fig.update_layout(barmode="stack", yaxis_title="Проверок", xaxis_type="category", bargap=0.6)
         ctx["fig_dq"] = _html(fig, 260)
 
     # 5. Не поменял ли источник формат? — журнал структур
