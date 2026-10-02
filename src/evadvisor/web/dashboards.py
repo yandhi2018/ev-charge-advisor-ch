@@ -180,6 +180,11 @@ def subject(period: str = "90", canton: str | None = None, power_class: str | No
                max(value) FILTER (WHERE metric = 'auc') AS auc, max(value) FILTER (WHERE metric = 'ece') AS ece,
                max(value) FILTER (WHERE metric = 'logloss') AS logloss
           FROM mart.model_metric WHERE task = 'availability' AND slice = 'all' GROUP BY 1 ORDER BY 1""")
+    ctx["metrics_recommender"] = fetch_all("""
+        SELECT model_name, max(value) FILTER (WHERE metric = 'hit_at_1') AS hit1,
+               max(value) FILTER (WHERE metric = 'hit_at_3') AS hit3, max(value) FILTER (WHERE metric = 'n') AS n
+          FROM mart.model_metric WHERE task = 'recommender' GROUP BY 1
+         ORDER BY array_position(ARRAY['nearest', 'nearest_free', 'model'], model_name)""")
     ctx["metrics_horizon"] = fetch_all("""
         SELECT slice, avg(value) FILTER (WHERE model_name = 'A0_seasonal_naive') AS a0,
                avg(value) FILTER (WHERE model_name = 'A1_profile') AS a1,

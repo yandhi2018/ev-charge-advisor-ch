@@ -58,6 +58,15 @@
     {% for m in metrics_availability %}<tr><td>{{ m.model_name }}</td><td>{{ "%.4f"|format(m.brier) }}</td><td>{{ "%.3f"|format(m.auc) }}</td>
       <td>{{ "%.4f"|format(m.ece) }}</td><td>{{ "%.4f"|format(m.logloss) }}</td></tr>{% else %}<tr><td colspan="5" class="muted">нет результатов</td></tr>{% endfor %}
     </tbody></table></div>
+    {% if metrics_recommender %}
+    <p class="q" style="margin-top:.8rem">Бэктест рекомендателя на тесте (ноябрь–декабрь 2025): доля запросов, где к приезду
+      на рекомендованной станции по факту была свободная подходящая точка.</p>
+    <div class="scroll"><table class="compact"><thead><tr><th>Стратегия</th><th>Hit@1</th><th>Hit@3</th><th>Запросов</th></tr></thead><tbody>
+    {% set names = {'nearest': 'Ближайшая совместимая', 'nearest_free': 'Ближайшая, свободная сейчас', 'model': 'Рекомендатель (модель B)'} %}
+    {% for m in metrics_recommender %}<tr><td>{{ names.get(m.model_name, m.model_name) }}</td><td>{{ "%.1f"|format(m.hit1 * 100) }} %</td>
+      <td>{{ "%.1f"|format(m.hit3 * 100) }} %</td><td>{{ m.n|int }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
   </section>
 </div>
 {% endif %}

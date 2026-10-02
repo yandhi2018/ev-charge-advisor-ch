@@ -194,6 +194,15 @@ def train_cmd(task: str = typer.Option("all", help="canton | availability | all"
             typer.echo(f"B {name}: Brier {m['brier']:.4f}, AUC {m['auc']:.3f}, ECE {m['ece']:.4f}")
 
 
+@app.command("backtest")
+def backtest_cmd(n: int = typer.Option(1500, help="Число смоделированных запросов")) -> None:
+    """Бэктест рекомендателя: Hit@1/Hit@3 против «ближайшей» и «ближайшей свободной сейчас»."""
+    from evadvisor.models import backtest
+
+    for name, m in backtest.run(n_requests=n).items():
+        typer.echo(f"{name:13s} Hit@1 {m['hit_at_1']:.3f}  Hit@3 {m['hit_at_3']:.3f}  (n={m['n']:.0f})")
+
+
 @app.command("serve")
 def serve_cmd(host: str = typer.Option(None), port: int = typer.Option(None)) -> None:
     """Веб-приложение (водитель, аналитика, состояние данных, происхождение)."""
