@@ -1,0 +1,56 @@
+@startuml use_case
+' ПР № 4. Диаграмма вариантов использования. Рендер: plantuml.com/plantuml или расширение PlantUML для VS Code
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Водитель" as Driver
+actor "Аналитик\nинфраструктуры" as Analyst
+actor "Инженер данных" as Engineer
+actor "Планировщик\n(расписание)" as Scheduler
+actor "Открытые источники\n(BFE, Open-Meteo,\nOpen EV Data, swisstopo)" as Sources <<system>>
+
+rectangle "EV Charge Advisor CH" {
+  usecase "Выбрать автомобиль\nиз каталога" as UC1
+  usecase "Указать местоположение\n(адрес, геолокация, карта)" as UC2
+  usecase "Получить рекомендации\nстанций" as UC3
+  usecase "Подобрать совместимые\nточки" as UC3a
+  usecase "Оценить вероятность\nсвободной точки" as UC3b
+  usecase "Получить снимок\nтекущих статусов" as UC3c
+  usecase "Просмотреть карточку\nи маршрут станции" as UC4
+  usecase "Проанализировать загрузку\nсети (предметный дашборд)" as UC5
+  usecase "Сравнить прогноз\nзагрузки с фактом" as UC6
+  usecase "Загрузить данные\nисточников" as UC7
+  usecase "Обработать архив\nстатусов" as UC8
+  usecase "Проверить качество\nданных" as UC9
+  usecase "Просмотреть состояние\nданных (операционный дашборд)" as UC10
+  usecase "Проследить происхождение\nпоказателя" as UC11
+  usecase "Обучить и оценить\nмодели прогноза" as UC12
+}
+
+Driver --> UC1
+Driver --> UC2
+Driver --> UC3
+Driver --> UC4
+UC3 ..> UC3a : <<include>>
+UC3 ..> UC3b : <<include>>
+UC3 ..> UC3c : <<include>>
+UC3 ..> UC1 : <<include>>
+UC3 ..> UC2 : <<include>>
+UC4 .> UC3 : <<extend>>
+
+Analyst --> UC5
+Analyst --> UC6
+Analyst --> UC11
+
+Engineer --> UC7
+Engineer --> UC8
+Engineer --> UC9
+Engineer --> UC10
+Engineer --> UC11
+Engineer --> UC12
+Scheduler --> UC7
+UC7 ..> UC9 : <<include>>
+UC3c --> Sources
+UC7 --> Sources
+@enduml

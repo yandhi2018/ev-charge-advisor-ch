@@ -169,6 +169,14 @@ def transform_cmd() -> None:
     typer.echo(f"Проверки качества: {sum(r.passed for r in results)}/{len(results)} пройдено")
 
 
+@app.command("docs")
+def docs_cmd() -> None:
+    """Словарь данных из каталога БД → docs/data_dictionary.md."""
+    from evadvisor.datadict import write
+
+    typer.echo(write())
+
+
 # ---------------------------------------------------------------- модели и приложение
 @app.command("train")
 def train_cmd(task: str = typer.Option("all", help="canton | availability | all"),

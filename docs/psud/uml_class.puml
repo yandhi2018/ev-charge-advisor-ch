@@ -1,0 +1,117 @@
+@startuml class_diagram
+' ПР № 4. Диаграмма классов предметной области (соответствует схеме core, см. docs/data_dictionary.md)
+skinparam classAttributeIconSize 0
+hide empty methods
+
+class Canton {
+  canton_code : char(2)
+  name : string
+  lat : double
+  lon : double
+}
+class PostalCode {
+  zip_id : int
+  postal_code : char(4)
+  locality : string
+  municipality : string
+  address_share : real
+}
+class Operator {
+  operator_id : string
+  name : string
+}
+class Station {
+  station_id : int
+  station_key : char(32)
+  name : string
+  street : string
+  postal_code : string
+  city : string
+  lat : double
+  lon : double
+  is_open_24h : bool
+  accessibility : string
+}
+class Evse {
+  evse_id : string
+  power_kw : decimal
+  power_type : string
+  power_class : AC|DC
+  is_active : bool
+  row_hash : char(64)
+  valid_from : timestamp
+  +effectivePower(v : Vehicle) : decimal
+}
+class EvseVersion {
+  history_id : bigint
+  power_kw : decimal
+  valid_from : timestamp
+  valid_to : timestamp
+  change_type : string
+}
+class PlugType {
+  plug_code : string
+  name_ru : string
+  current_type : AC|DC
+  needs_own_cable : bool
+}
+class Vehicle {
+  vehicle_id : int
+  brand : string
+  model : string
+  variant : string
+  release_year : int
+  battery_kwh : decimal
+  ac_max_kw : decimal
+  dc_max_kw : decimal
+}
+class StatusSnapshot {
+  slot_ts : timestamp
+  status : string
+}
+class WeatherHour {
+  hour_utc : timestamp
+  kind : actual|hist_forecast|forecast
+  temperature_c : real
+  precipitation_mm : real
+  snowfall_cm : real
+}
+class RecommendationRequest {
+  request_id : uuid
+  requested_at : timestamp
+  lat_round : decimal
+  lon_round : decimal
+  energy_kwh : decimal
+  filters : json
+}
+class RecommendationItem {
+  rank : int
+  distance_km : decimal
+  eta_min : decimal
+  p_free : decimal
+  effective_kw : decimal
+  expected_total_min : decimal
+}
+class LoadRun {
+  run_id : uuid
+  source : string
+  status : string
+  started_at : timestamp
+  rows_written : bigint
+}
+
+Canton "1" -- "0..*" PostalCode
+Canton "0..1" -- "0..*" Station : расположена в >
+Operator "1" -- "0..*" Station : обслуживает >
+Station "1" *-- "1..*" Evse
+Evse "1" *-- "1..*" EvseVersion : история
+Evse "0..*" -- "1..*" PlugType : разъёмы
+Vehicle "0..*" -- "1..*" PlugType : совместим с
+Evse "1" -- "0..*" StatusSnapshot
+Canton "1" -- "0..*" WeatherHour
+RecommendationRequest "0..*" -- "1" Vehicle
+RecommendationRequest "1" *-- "0..20" RecommendationItem
+RecommendationItem "0..*" -- "1" Station
+LoadRun "1" -- "0..*" StatusSnapshot : загрузил >
+LoadRun "1" -- "0..*" WeatherHour : загрузил >
+@enduml

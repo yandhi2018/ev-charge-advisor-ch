@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="defs" targetNamespace="https://github.com/yandhi2018/ev-charge-advisor-ch">
+<bpmn:collaboration id="collab"><bpmn:participant id="pool" name="EV Charge Advisor CH: подбор станции для зарядки" processRef="proc"/></bpmn:collaboration>
+<bpmn:process id="proc" isExecutable="false"><bpmn:laneSet id="lanes"><bpmn:lane id="lane_driver" name="Водитель"><bpmn:flowNodeRef>start</bpmn:flowNodeRef><bpmn:flowNodeRef>t1</bpmn:flowNodeRef><bpmn:flowNodeRef>t2</bpmn:flowNodeRef><bpmn:flowNodeRef>t3</bpmn:flowNodeRef><bpmn:flowNodeRef>t13</bpmn:flowNodeRef><bpmn:flowNodeRef>g5</bpmn:flowNodeRef><bpmn:flowNodeRef>t14</bpmn:flowNodeRef><bpmn:flowNodeRef>t15</bpmn:flowNodeRef><bpmn:flowNodeRef>end_ok</bpmn:flowNodeRef></bpmn:lane><bpmn:lane id="lane_app" name="Система (веб-приложение, рекомендатель)"><bpmn:flowNodeRef>t4</bpmn:flowNodeRef><bpmn:flowNodeRef>g1</bpmn:flowNodeRef><bpmn:flowNodeRef>g2</bpmn:flowNodeRef><bpmn:flowNodeRef>t7</bpmn:flowNodeRef><bpmn:flowNodeRef>g3</bpmn:flowNodeRef><bpmn:flowNodeRef>t8</bpmn:flowNodeRef><bpmn:flowNodeRef>g4</bpmn:flowNodeRef><bpmn:flowNodeRef>t9</bpmn:flowNodeRef><bpmn:flowNodeRef>t10</bpmn:flowNodeRef><bpmn:flowNodeRef>t11</bpmn:flowNodeRef><bpmn:flowNodeRef>end_none</bpmn:flowNodeRef></bpmn:lane><bpmn:lane id="lane_data" name="Хранилище и внешние источники"><bpmn:flowNodeRef>t5</bpmn:flowNodeRef><bpmn:flowNodeRef>t6</bpmn:flowNodeRef><bpmn:flowNodeRef>t12</bpmn:flowNodeRef></bpmn:lane></bpmn:laneSet>
+<bpmn:startEvent id="start" name="Нужна зарядка"><bpmn:outgoing>f0</bpmn:outgoing></bpmn:startEvent>
+<bpmn:userTask id="t1" name="Выбрать автомобиль"><bpmn:incoming>f0</bpmn:incoming><bpmn:outgoing>f1</bpmn:outgoing><bpmn:dataInputAssociation id="a_d_vehicle"><bpmn:sourceRef>d_vehicle_ref</bpmn:sourceRef></bpmn:dataInputAssociation></bpmn:userTask>
+<bpmn:userTask id="t2" name="Указать местоположение"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+<bpmn:userTask id="t3" name="Отправить запрос с фильтрами"><bpmn:incoming>f2</bpmn:incoming><bpmn:incoming>f23</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:userTask>
+<bpmn:serviceTask id="t4" name="Проверить возраст снимка статусов"><bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:exclusiveGateway id="g1" name="Снимок старше 5 мин?"><bpmn:incoming>f4</bpmn:incoming><bpmn:outgoing>f5</bpmn:outgoing><bpmn:outgoing>f6</bpmn:outgoing></bpmn:exclusiveGateway>
+<bpmn:serviceTask id="t5" name="Получить снимок EVSEStatus"><bpmn:incoming>f5</bpmn:incoming><bpmn:outgoing>f7</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:serviceTask id="t6" name="Сохранить снимок (sp_apply_status_snapshot)"><bpmn:incoming>f7</bpmn:incoming><bpmn:outgoing>f8</bpmn:outgoing><bpmn:dataOutputAssociation id="a_d_snapshot"><bpmn:targetRef>d_snapshot_ref</bpmn:targetRef></bpmn:dataOutputAssociation></bpmn:serviceTask>
+<bpmn:exclusiveGateway id="g2" name=""><bpmn:incoming>f6</bpmn:incoming><bpmn:incoming>f8</bpmn:incoming><bpmn:outgoing>f9</bpmn:outgoing></bpmn:exclusiveGateway>
+<bpmn:serviceTask id="t7" name="Подобрать совместимые точки (fn_compatible_evses)"><bpmn:incoming>f9</bpmn:incoming><bpmn:incoming>f14</bpmn:incoming><bpmn:outgoing>f10</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:exclusiveGateway id="g3" name="Найдено ≥ 5 станций?"><bpmn:incoming>f10</bpmn:incoming><bpmn:outgoing>f11</bpmn:outgoing><bpmn:outgoing>f12</bpmn:outgoing></bpmn:exclusiveGateway>
+<bpmn:serviceTask id="t8" name="Расширить радиус поиска"><bpmn:incoming>f12</bpmn:incoming><bpmn:outgoing>f13</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:exclusiveGateway id="g4" name="Радиус ≤ 50 км?"><bpmn:incoming>f13</bpmn:incoming><bpmn:outgoing>f14</bpmn:outgoing><bpmn:outgoing>f15</bpmn:outgoing></bpmn:exclusiveGateway>
+<bpmn:serviceTask id="t9" name="Рассчитать время в пути"><bpmn:incoming>f11</bpmn:incoming><bpmn:outgoing>f16</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:serviceTask id="t10" name="Оценить вероятность свободной точки (модель B)"><bpmn:incoming>f16</bpmn:incoming><bpmn:outgoing>f17</bpmn:outgoing><bpmn:dataInputAssociation id="a_d_profile"><bpmn:sourceRef>d_profile_ref</bpmn:sourceRef></bpmn:dataInputAssociation></bpmn:serviceTask>
+<bpmn:serviceTask id="t11" name="Ранжировать по ожидаемому времени и сформировать пояснения"><bpmn:incoming>f17</bpmn:incoming><bpmn:outgoing>f18</bpmn:outgoing></bpmn:serviceTask>
+<bpmn:serviceTask id="t12" name="Записать журнал запроса"><bpmn:incoming>f18</bpmn:incoming><bpmn:outgoing>f19</bpmn:outgoing><bpmn:dataOutputAssociation id="a_d_log"><bpmn:targetRef>d_log_ref</bpmn:targetRef></bpmn:dataOutputAssociation></bpmn:serviceTask>
+<bpmn:userTask id="t13" name="Просмотреть рекомендации на карте"><bpmn:incoming>f19</bpmn:incoming><bpmn:outgoing>f20</bpmn:outgoing></bpmn:userTask>
+<bpmn:exclusiveGateway id="g5" name="Станция подходит?"><bpmn:incoming>f20</bpmn:incoming><bpmn:outgoing>f21</bpmn:outgoing><bpmn:outgoing>f22</bpmn:outgoing></bpmn:exclusiveGateway>
+<bpmn:userTask id="t14" name="Изменить фильтры"><bpmn:incoming>f22</bpmn:incoming><bpmn:outgoing>f23</bpmn:outgoing></bpmn:userTask>
+<bpmn:userTask id="t15" name="Открыть маршрут к станции"><bpmn:incoming>f21</bpmn:incoming><bpmn:outgoing>f24</bpmn:outgoing></bpmn:userTask>
+<bpmn:endEvent id="end_ok" name="Станция выбрана"><bpmn:incoming>f24</bpmn:incoming></bpmn:endEvent>
+<bpmn:endEvent id="end_none" name="Подходящих станций нет"><bpmn:incoming>f15</bpmn:incoming></bpmn:endEvent>
+<bpmn:sequenceFlow id="f0" sourceRef="start" targetRef="t1"/>
+<bpmn:sequenceFlow id="f1" sourceRef="t1" targetRef="t2"/>
+<bpmn:sequenceFlow id="f2" sourceRef="t2" targetRef="t3"/>
+<bpmn:sequenceFlow id="f3" sourceRef="t3" targetRef="t4"/>
+<bpmn:sequenceFlow id="f4" sourceRef="t4" targetRef="g1"/>
+<bpmn:sequenceFlow id="f5" sourceRef="g1" targetRef="t5" name="да"/>
+<bpmn:sequenceFlow id="f6" sourceRef="g1" targetRef="g2" name="нет"/>
+<bpmn:sequenceFlow id="f7" sourceRef="t5" targetRef="t6"/>
+<bpmn:sequenceFlow id="f8" sourceRef="t6" targetRef="g2"/>
+<bpmn:sequenceFlow id="f9" sourceRef="g2" targetRef="t7"/>
+<bpmn:sequenceFlow id="f10" sourceRef="t7" targetRef="g3"/>
+<bpmn:sequenceFlow id="f11" sourceRef="g3" targetRef="t9" name="да"/>
+<bpmn:sequenceFlow id="f12" sourceRef="g3" targetRef="t8" name="нет"/>
+<bpmn:sequenceFlow id="f13" sourceRef="t8" targetRef="g4"/>
+<bpmn:sequenceFlow id="f14" sourceRef="g4" targetRef="t7" name="да"/>
+<bpmn:sequenceFlow id="f15" sourceRef="g4" targetRef="end_none" name="нет"/>
+<bpmn:sequenceFlow id="f16" sourceRef="t9" targetRef="t10"/>
+<bpmn:sequenceFlow id="f17" sourceRef="t10" targetRef="t11"/>
+<bpmn:sequenceFlow id="f18" sourceRef="t11" targetRef="t12"/>
+<bpmn:sequenceFlow id="f19" sourceRef="t12" targetRef="t13"/>
+<bpmn:sequenceFlow id="f20" sourceRef="t13" targetRef="g5"/>
+<bpmn:sequenceFlow id="f21" sourceRef="g5" targetRef="t15" name="да"/>
+<bpmn:sequenceFlow id="f22" sourceRef="g5" targetRef="t14" name="нет"/>
+<bpmn:sequenceFlow id="f23" sourceRef="t14" targetRef="t3"/>
+<bpmn:sequenceFlow id="f24" sourceRef="t15" targetRef="end_ok"/>
+<bpmn:dataObjectReference id="d_vehicle_ref" name="core.vehicle" dataObjectRef="d_vehicle"/><bpmn:dataObject id="d_vehicle"/>
+<bpmn:dataObjectReference id="d_snapshot_ref" name="core.status_snapshot" dataObjectRef="d_snapshot"/><bpmn:dataObject id="d_snapshot"/>
+<bpmn:dataObjectReference id="d_profile_ref" name="mart.evse_profile, weather_hourly" dataObjectRef="d_profile"/><bpmn:dataObject id="d_profile"/>
+<bpmn:dataObjectReference id="d_log_ref" name="core.recommendation_request / item" dataObjectRef="d_log"/><bpmn:dataObject id="d_log"/>
+</bpmn:process>
+<bpmndi:BPMNDiagram id="diagram"><bpmndi:BPMNPlane id="plane" bpmnElement="collab">
+<bpmndi:BPMNShape id="pool_di" bpmnElement="pool" isHorizontal="true"><dc:Bounds x="0" y="0" width="3140" height="620"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="lane_driver_di" bpmnElement="lane_driver" isHorizontal="true"><dc:Bounds x="30" y="0" width="3110" height="170"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="lane_app_di" bpmnElement="lane_app" isHorizontal="true"><dc:Bounds x="30" y="170" width="3110" height="260"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="lane_data_di" bpmnElement="lane_data" isHorizontal="true"><dc:Bounds x="30" y="430" width="3110" height="190"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="start_di" bpmnElement="start"><dc:Bounds x="92" y="67" width="36" height="36"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t1_di" bpmnElement="t1"><dc:Bounds x="200" y="50" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t2_di" bpmnElement="t2"><dc:Bounds x="350" y="50" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t3_di" bpmnElement="t3"><dc:Bounds x="500" y="50" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t4_di" bpmnElement="t4"><dc:Bounds x="650" y="265" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="g1_di" bpmnElement="g1" isMarkerVisible="true"><dc:Bounds x="835" y="275" width="50" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t5_di" bpmnElement="t5"><dc:Bounds x="950" y="490" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t6_di" bpmnElement="t6"><dc:Bounds x="1100" y="490" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="g2_di" bpmnElement="g2" isMarkerVisible="true"><dc:Bounds x="1285" y="275" width="50" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t7_di" bpmnElement="t7"><dc:Bounds x="1400" y="265" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="g3_di" bpmnElement="g3" isMarkerVisible="true"><dc:Bounds x="1585" y="275" width="50" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t8_di" bpmnElement="t8"><dc:Bounds x="1625" y="310" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="g4_di" bpmnElement="g4" isMarkerVisible="true"><dc:Bounds x="1810" y="320" width="50" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t9_di" bpmnElement="t9"><dc:Bounds x="1850" y="265" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t10_di" bpmnElement="t10"><dc:Bounds x="2000" y="265" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t11_di" bpmnElement="t11"><dc:Bounds x="2150" y="265" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t12_di" bpmnElement="t12"><dc:Bounds x="2300" y="490" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t13_di" bpmnElement="t13"><dc:Bounds x="2450" y="50" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="g5_di" bpmnElement="g5" isMarkerVisible="true"><dc:Bounds x="2635" y="60" width="50" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t14_di" bpmnElement="t14"><dc:Bounds x="2675" y="95" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="t15_di" bpmnElement="t15"><dc:Bounds x="2750" y="50" width="120" height="70"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="end_ok_di" bpmnElement="end_ok"><dc:Bounds x="2942" y="67" width="36" height="36"/></bpmndi:BPMNShape>
+<bpmndi:BPMNShape id="end_none_di" bpmnElement="end_none"><dc:Bounds x="1967" y="327" width="36" height="36"/></bpmndi:BPMNShape>
+<bpmndi:BPMNEdge id="f0_di" bpmnElement="f0"><di:waypoint x="128" y="85"/><di:waypoint x="164" y="85"/><di:waypoint x="164" y="85"/><di:waypoint x="200" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f1_di" bpmnElement="f1"><di:waypoint x="320" y="85"/><di:waypoint x="335" y="85"/><di:waypoint x="335" y="85"/><di:waypoint x="350" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f2_di" bpmnElement="f2"><di:waypoint x="470" y="85"/><di:waypoint x="485" y="85"/><di:waypoint x="485" y="85"/><di:waypoint x="500" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f3_di" bpmnElement="f3"><di:waypoint x="620" y="85"/><di:waypoint x="635" y="85"/><di:waypoint x="635" y="300"/><di:waypoint x="650" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f4_di" bpmnElement="f4"><di:waypoint x="770" y="300"/><di:waypoint x="802" y="300"/><di:waypoint x="802" y="300"/><di:waypoint x="835" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f5_di" bpmnElement="f5"><di:waypoint x="885" y="300"/><di:waypoint x="918" y="300"/><di:waypoint x="918" y="525"/><di:waypoint x="950" y="525"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f6_di" bpmnElement="f6"><di:waypoint x="885" y="300"/><di:waypoint x="1085" y="300"/><di:waypoint x="1085" y="300"/><di:waypoint x="1285" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f7_di" bpmnElement="f7"><di:waypoint x="1070" y="525"/><di:waypoint x="1085" y="525"/><di:waypoint x="1085" y="525"/><di:waypoint x="1100" y="525"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f8_di" bpmnElement="f8"><di:waypoint x="1220" y="525"/><di:waypoint x="1252" y="525"/><di:waypoint x="1252" y="300"/><di:waypoint x="1285" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f9_di" bpmnElement="f9"><di:waypoint x="1335" y="300"/><di:waypoint x="1368" y="300"/><di:waypoint x="1368" y="300"/><di:waypoint x="1400" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f10_di" bpmnElement="f10"><di:waypoint x="1520" y="300"/><di:waypoint x="1552" y="300"/><di:waypoint x="1552" y="300"/><di:waypoint x="1585" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f11_di" bpmnElement="f11"><di:waypoint x="1635" y="300"/><di:waypoint x="1742" y="300"/><di:waypoint x="1742" y="300"/><di:waypoint x="1850" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f12_di" bpmnElement="f12"><di:waypoint x="1635" y="300"/><di:waypoint x="1630" y="300"/><di:waypoint x="1630" y="345"/><di:waypoint x="1625" y="345"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f13_di" bpmnElement="f13"><di:waypoint x="1745" y="345"/><di:waypoint x="1778" y="345"/><di:waypoint x="1778" y="345"/><di:waypoint x="1810" y="345"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f14_di" bpmnElement="f14"><di:waypoint x="1835" y="370"/><di:waypoint x="1835" y="395"/><di:waypoint x="1460" y="395"/><di:waypoint x="1460" y="335"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f15_di" bpmnElement="f15"><di:waypoint x="1860" y="345"/><di:waypoint x="1914" y="345"/><di:waypoint x="1914" y="345"/><di:waypoint x="1967" y="345"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f16_di" bpmnElement="f16"><di:waypoint x="1970" y="300"/><di:waypoint x="1985" y="300"/><di:waypoint x="1985" y="300"/><di:waypoint x="2000" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f17_di" bpmnElement="f17"><di:waypoint x="2120" y="300"/><di:waypoint x="2135" y="300"/><di:waypoint x="2135" y="300"/><di:waypoint x="2150" y="300"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f18_di" bpmnElement="f18"><di:waypoint x="2270" y="300"/><di:waypoint x="2285" y="300"/><di:waypoint x="2285" y="525"/><di:waypoint x="2300" y="525"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f19_di" bpmnElement="f19"><di:waypoint x="2420" y="525"/><di:waypoint x="2435" y="525"/><di:waypoint x="2435" y="85"/><di:waypoint x="2450" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f20_di" bpmnElement="f20"><di:waypoint x="2570" y="85"/><di:waypoint x="2602" y="85"/><di:waypoint x="2602" y="85"/><di:waypoint x="2635" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f21_di" bpmnElement="f21"><di:waypoint x="2685" y="85"/><di:waypoint x="2718" y="85"/><di:waypoint x="2718" y="85"/><di:waypoint x="2750" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f22_di" bpmnElement="f22"><di:waypoint x="2685" y="85"/><di:waypoint x="2680" y="85"/><di:waypoint x="2680" y="130"/><di:waypoint x="2675" y="130"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f23_di" bpmnElement="f23"><di:waypoint x="2735" y="165"/><di:waypoint x="2735" y="190"/><di:waypoint x="560" y="190"/><di:waypoint x="560" y="120"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNEdge id="f24_di" bpmnElement="f24"><di:waypoint x="2870" y="85"/><di:waypoint x="2906" y="85"/><di:waypoint x="2906" y="85"/><di:waypoint x="2942" y="85"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNShape id="d_vehicle_di" bpmnElement="d_vehicle_ref"><dc:Bounds x="242" y="130" width="36" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNEdge id="a_d_vehicle_di" bpmnElement="a_d_vehicle"><di:waypoint x="260" y="130"/><di:waypoint x="260" y="120"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNShape id="d_snapshot_di" bpmnElement="d_snapshot_ref"><dc:Bounds x="1142" y="575" width="36" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNEdge id="a_d_snapshot_di" bpmnElement="a_d_snapshot"><di:waypoint x="1160" y="560"/><di:waypoint x="1160" y="575"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNShape id="d_profile_di" bpmnElement="d_profile_ref"><dc:Bounds x="2042" y="550" width="36" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNEdge id="a_d_profile_di" bpmnElement="a_d_profile"><di:waypoint x="2060" y="550"/><di:waypoint x="2060" y="335"/></bpmndi:BPMNEdge>
+<bpmndi:BPMNShape id="d_log_di" bpmnElement="d_log_ref"><dc:Bounds x="2342" y="575" width="36" height="50"/></bpmndi:BPMNShape>
+<bpmndi:BPMNEdge id="a_d_log_di" bpmnElement="a_d_log"><di:waypoint x="2360" y="560"/><di:waypoint x="2360" y="575"/></bpmndi:BPMNEdge>
+</bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>
