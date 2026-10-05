@@ -132,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File scripts\init_db.ps1
 config/          конфигурация, каталог проверок качества, граф lineage, собственный каталог ЭМ
 db/              SQL: 00 схемы, 01 таблицы, 02 справочники, 03 запросы, 04 функции, 05 процедуры,
                  06 триггеры, 07 роли; duckdb/ — обработка архива
-docs/            проектное решение, материалы ПСУД и ВКР
+docs/            проектное решение, словарь данных (генерируется из БД)
 scripts/         init_db.ps1, register_tasks.ps1
 src/evadvisor/   ingestion/ загрузчики, models/ модели, web/ приложение, recommender, quality, lineage, migrate, cli
 tests/           pytest
