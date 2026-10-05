@@ -78,8 +78,11 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
         w = weather_wide(load_weather(("hist_forecast",)), "hist_forecast")
         stations = evse.drop_duplicates("station_id")[["station_id", "lat", "lon"]].to_numpy()
 
-        hits = {k: [] for k in ("nearest", "nearest_free", "model")}
-        hits3 = {k: [] for k in hits}
+        penalties = [20, 45, 90, 180]       # варианты штрафа ожидания, мин: компромисс «свободно» ↔ «быстро»
+        keys = ["nearest", "nearest_free", "model"] + [f"model_wp{p}" for p in penalties]
+        hits = {k: [] for k in keys}
+        hits3 = {k: [] for k in keys}
+        charge = {k: [] for k in keys}      # время зарядки E кВт·ч на выбранной станции, мин
         for _ in range(n_requests):
             s = stations[rng.integers(len(stations))]
             lat, lon = s[1] + rng.normal(0, 0.03), s[2] + rng.normal(0, 0.04)   # ~3 км от станции
@@ -129,20 +132,27 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
                 free_arr=("status_arr", lambda s: (s == "Available").any()),
                 p_station=("p_free", lambda p: 1 - np.prod(1 - p.to_numpy())),
                 eff=("eff_kw", "max"))
-            g["total"] = g["eta_min"] + (1 - g["p_station"]) * cfg_r["wait_penalty_min"] + 60 * energy_kwh / g["eff"]
+            g["charge"] = 60 * energy_kwh / g["eff"]
+
+            def by_total(penalty: float, g=g) -> pd.DataFrame:
+                return g.assign(total=g["eta_min"] + (1 - g["p_station"]) * penalty + g["charge"]).sort_values("total")
+
             orders = {
                 "nearest": g.sort_values("distance_km"),
                 "nearest_free": pd.concat([g[g["free_now"]].sort_values("distance_km"),
                                            g[~g["free_now"]].sort_values("distance_km")]),
-                "model": g.sort_values("total"),
+                "model": by_total(cfg_r["wait_penalty_min"]),
+                **{f"model_wp{p}": by_total(p) for p in penalties},
             }
             for k, o in orders.items():
                 hits[k].append(bool(o["free_arr"].iloc[0]))
                 hits3[k].append(bool(o["free_arr"].head(3).any()))
+                charge[k].append(float(o["charge"].iloc[0]))
         con.close()
         out = {}
         for k in hits:
-            m = {"hit_at_1": float(np.mean(hits[k])), "hit_at_3": float(np.mean(hits3[k])), "n": float(len(hits[k]))}
+            m = {"hit_at_1": float(np.mean(hits[k])), "hit_at_3": float(np.mean(hits3[k])), "n": float(len(hits[k])),
+                 "charge_min_median": float(np.median(charge[k]))}
             save_metrics("recommender", k, 1, m)
             out[k] = m
         ctx.rows_written = len(hits["model"])
