@@ -21,15 +21,17 @@
 flowchart LR
   subgraph SRC[Источники]
     A[Архив статусов 2024–2025<br/>GitHub, 7z/Parquet]
+    C[ChargingStationDetails<br/>CSV]
     S[EVSEStatus<br/>JSON, снимок]
     D[EVSEData<br/>JSON OICP]
     W[Open-Meteo<br/>REST]
     V[Open EV Data<br/>JSON + CSV]
     P[swisstopo PLZ<br/>CSV]
   end
-  L[Загрузчики Python<br/>журнал, raw, ретраи]
+  L[Загрузчики Python<br/>ретраи, журнал запусков]
+  R[(raw<br/>сырые файлы, sha256)]
   subgraph DUCK[DuckDB + Parquet]
-    E[5-мин статусы → эпизоды → агрегаты]
+    E[5-мин статусы, эпизоды,<br/>агрегаты месяца]
   end
   subgraph PG[PostgreSQL 17]
     STG[(stg)] --> CORE[(core<br/>SCD2, справочники)] --> MART[(mart<br/>витрины)]
@@ -37,8 +39,10 @@ flowchart LR
   end
   M[Модели A0–A2, B0–B3<br/>scikit-learn, LightGBM]
   WEB[FastAPI: водитель,<br/>2 дашборда, lineage]
-  A --> L --> E --> MART
-  S & D & W & V & P --> L --> STG
+  A & C & S & D & W & V & P --> L --> R
+  R --> E --> MART
+  R --> STG
+  L -. журнал .-> OPS
   MART --> M --> MART
   CORE & MART --> WEB
   OPS --> WEB
