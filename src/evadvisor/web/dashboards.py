@@ -215,8 +215,10 @@ def subject(period: str = "90", canton: str | None = None, power_class: str | No
     ctx["availability_selected"] = sel["model_name"] if sel else None
     ctx["metrics_recommender"] = [{**r, "label": model_name(r["model_name"])} for r in fetch_all("""
         SELECT model_name, max(value) FILTER (WHERE metric = 'hit_at_1') AS hit1,
-               max(value) FILTER (WHERE metric = 'hit_at_3') AS hit3, max(value) FILTER (WHERE metric = 'n') AS n
-          FROM mart.model_metric WHERE task = 'recommender' GROUP BY 1
+               max(value) FILTER (WHERE metric = 'hit_at_3') AS hit3, max(value) FILTER (WHERE metric = 'n') AS n,
+               max(value) FILTER (WHERE metric = 'total_min_mean') AS total
+          FROM mart.model_metric WHERE task = 'recommender' AND model_name IN ('nearest', 'nearest_free', 'model')
+         GROUP BY 1
          ORDER BY array_position(ARRAY['nearest', 'nearest_free', 'model'], model_name)""")]
     ctx["metrics_horizon"] = fetch_all("""
         SELECT replace(slice, 'h=', '')::int AS h,

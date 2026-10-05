@@ -45,7 +45,7 @@
     <section class="card">
       <div class="card-head"><h2>Где сеть загружена сильнее всего?</h2><p>Средняя загрузка по кантонам за период.</p></div>
       {{ fig_ranking|safe if fig_ranking else '<div class="empty-state">Нет данных</div>'|safe }}
-      <p class="card-foot">Столбец 15 % — в среднем занята каждая седьмая работающая точка. Кантоны отсортированы по убыванию.</p>
+      <p class="card-foot">Столбец 15 % — в среднем занята каждая седьмая работающая точка. Кантоны отсортированы по убыванию средней загрузки AC и DC.</p>
     </section>
     <section class="card">
       <div class="card-head"><h2>Когда пик?</h2><p>Загрузка по дням недели и часам (время швейцарское) — {{ scope }}.</p></div>
@@ -94,11 +94,12 @@
       {% if metrics_recommender %}
       <h3 class="small" style="margin:14px 0 4px">Рекомендации: была ли станция свободна к приезду</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Стратегия выбора станции</th><th class="num">1-я станция</th><th class="num">Одна из трёх</th></tr></thead><tbody>
+        <thead><tr><th>Стратегия выбора станции</th><th class="num">1-я станция</th><th class="num">Одна из трёх</th><th class="num">В пути + ожидание + зарядка</th></tr></thead><tbody>
         {% for m in metrics_recommender %}<tr {% if m.model_name == 'model' %}class="best"{% endif %}><td>{{ m.label }}</td>
-          <td class="num">{{ "%.1f"|format(m.hit1 * 100) }} %</td><td class="num">{{ "%.1f"|format(m.hit3 * 100) }} %</td></tr>{% endfor %}
+          <td class="num">{{ "%.1f"|format(m.hit1 * 100) }} %</td><td class="num">{{ "%.1f"|format(m.hit3 * 100) }} %</td>
+          <td class="num">{{ "%.0f мин"|format(m.total) if m.total is not none else "—" }}</td></tr>{% endfor %}
       </tbody></table></div>
-      <p class="small muted" style="margin:6px 0 0">{{ (metrics_recommender[0].n or 0)|int }} смоделированных поездок ноября–декабря 2025 г.</p>
+      <p class="small muted" style="margin:6px 0 0">{{ (metrics_recommender[0].n or 0)|int }} смоделированных поездок ноября–декабря 2025 г. Время — среднее по фактическим статусам: ожидание свободной точки после приезда учитывается до 30 мин, зарядка 20 кВт·ч.</p>
       {% endif %}
     </section>
   </div>

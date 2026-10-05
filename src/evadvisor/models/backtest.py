@@ -7,6 +7,8 @@
   model         — ранжирование рекомендателя (ожидаемое время с вероятностью модели B).
 Hit@1 — у станции на первом месте к моменту прибытия t0 + ETA свободна хотя бы одна совместимая точка
 (по фактическим статусам архива). Hit@3 — хотя бы у одной из трёх первых.
+Фактическое время выбранной станции: ETA + ожидание + зарядка, где ожидание — минуты от прибытия до первого
+слота со свободной совместимой точкой по архиву (не дольше WAIT_CAP_MIN; дольше — считается WAIT_CAP_MIN).
 Признаки модели строятся только из данных на момент t0 и профилей обучающего окна.
 """
 
@@ -31,6 +33,7 @@ VEHICLE_PROFILES = {   # типовые автомобили: разъёмы и 
     "ccs_car": {"plugs": {"CCS2", "TYPE2_CABLE", "TYPE2_SOCKET"}, "ac": 11.0, "dc": 150.0},
     "ac_only": {"plugs": {"TYPE2_CABLE", "TYPE2_SOCKET"}, "ac": 11.0, "dc": None},
 }
+WAIT_CAP_MIN = 30      # сколько минут после прибытия отслеживается фактическое ожидание
 
 
 def _haversine(lat1, lon1, lat2, lon2):
@@ -64,7 +67,7 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
         all_slots = con.sql(f"SELECT DISTINCT slot_ts FROM read_parquet({globs}) ORDER BY 1").df()["slot_ts"]
         n_t0 = min(150, len(all_slots) - 13)
         t0_list = all_slots.iloc[np.sort(rng.choice(len(all_slots) - 13, n_t0, replace=False))]
-        needed_slots = {t + pd.Timedelta(minutes=5 * k) for t in t0_list for k in range(13)}
+        needed_slots = {t + pd.Timedelta(minutes=5 * k) for t in t0_list for k in range(13 + WAIT_CAP_MIN // 5)}
         needed = pd.DataFrame({"slot_ts": sorted(needed_slots)})
         con.register("needed", needed)
         con.execute(f"""CREATE TABLE st AS SELECT s.evse_id, s.slot_ts, s.status
@@ -83,6 +86,8 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
         hits = {k: [] for k in keys}
         hits3 = {k: [] for k in keys}
         charge = {k: [] for k in keys}      # время зарядки E кВт·ч на выбранной станции, мин
+        eta = {k: [] for k in keys}
+        wait = {k: [] for k in keys}        # фактическое ожидание свободной точки после прибытия, мин
         for _ in range(n_requests):
             s = stations[rng.integers(len(stations))]
             lat, lon = s[1] + rng.normal(0, 0.03), s[2] + rng.normal(0, 0.04)   # ~3 км от станции
@@ -119,20 +124,27 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
             limit = np.where(cand["power_class"] == "DC", vp["dc"] or 0, vp["ac"])
             default = np.where(cand["power_class"] == "DC", 22.0, 3.7)   # мощность не указана оператором
             cand["eff_kw"] = np.minimum(cand["power_kw"].fillna(pd.Series(default, index=cand.index)), limit)
-            # факт: статус каждой точки в слот прибытия
-            arr_slots = (t0 + pd.to_timedelta(cand["delta_min"], unit="m")).unique().tolist()
-            fact = con.execute("SELECT evse_id, slot_ts, status FROM st WHERE slot_ts IN (SELECT unnest(?))",
-                               [arr_slots]).df()
+            # факт: статусы точек от слота прибытия до WAIT_CAP_MIN после него
             cand["arr_slot"] = t0 + pd.to_timedelta(cand["delta_min"], unit="m")
+            fact = con.execute("SELECT evse_id, slot_ts, status FROM st WHERE slot_ts BETWEEN ? AND ? "
+                               "AND evse_id IN (SELECT unnest(?))",
+                               [cand["arr_slot"].min(), cand["arr_slot"].max() + pd.Timedelta(minutes=WAIT_CAP_MIN),
+                                cand["evse_id"].unique().tolist()]).df()
             cand = cand.merge(fact.rename(columns={"slot_ts": "arr_slot", "status": "status_arr"}),
                               on=["evse_id", "arr_slot"], how="left")
+            free = cand[["evse_id", "arr_slot"]].merge(fact[fact["status"] == "Available"], on="evse_id")
+            free = free[free["slot_ts"] >= free["arr_slot"]]
+            first_free = ((free["slot_ts"] - free["arr_slot"]).dt.total_seconds() / 60).groupby(free["evse_id"]).min()
+            cand["wait_pt"] = cand["evse_id"].map(first_free)
             g = cand.groupby("station_id").agg(
                 distance_km=("distance_km", "min"), eta_min=("eta_min", "min"),
                 free_now=("status_now", lambda s: (s == "Available").any()),
                 free_arr=("status_arr", lambda s: (s == "Available").any()),
                 p_station=("p_free", lambda p: 1 - np.prod(1 - p.to_numpy())),
-                eff=("eff_kw", "max"))
+                eff=("eff_kw", "max"),
+                wait=("wait_pt", "min"))
             g["charge"] = 60 * energy_kwh / g["eff"]
+            g["wait"] = g["wait"].fillna(WAIT_CAP_MIN).clip(upper=WAIT_CAP_MIN)
 
             def by_total(penalty: float, g=g) -> pd.DataFrame:
                 return g.assign(total=g["eta_min"] + (1 - g["p_station"]) * penalty + g["charge"]).sort_values("total")
@@ -148,11 +160,16 @@ def run(n_requests: int = 1500, radius_km: float = 15, energy_kwh: float = 20) -
                 hits[k].append(bool(o["free_arr"].iloc[0]))
                 hits3[k].append(bool(o["free_arr"].head(3).any()))
                 charge[k].append(float(o["charge"].iloc[0]))
+                eta[k].append(float(o["eta_min"].iloc[0]))
+                wait[k].append(float(o["wait"].iloc[0]))
         con.close()
         out = {}
         for k in hits:
             m = {"hit_at_1": float(np.mean(hits[k])), "hit_at_3": float(np.mean(hits3[k])), "n": float(len(hits[k])),
-                 "charge_min_median": float(np.median(charge[k]))}
+                 "charge_min_median": float(np.median(charge[k])),
+                 "eta_min_mean": float(np.mean(eta[k])), "wait_min_mean": float(np.mean(wait[k])),
+                 "charge_min_mean": float(np.mean(charge[k])),
+                 "total_min_mean": float(np.mean(np.add(np.add(eta[k], wait[k]), charge[k])))}
             save_metrics("recommender", k, 1, m)
             out[k] = m
         ctx.rows_written = len(hits["model"])
