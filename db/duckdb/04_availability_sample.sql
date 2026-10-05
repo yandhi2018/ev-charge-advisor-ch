@@ -19,7 +19,9 @@ COPY (
         SELECT o.*, t.status AS status_arr
           FROM origins o
           JOIN s t ON t.evse_id = o.evse_id AND t.slot_ts = o.t0 + to_minutes(o.delta_min)
-         WHERE t.status IN ('Available', 'Occupied', 'OutOfService', 'Reserved')
+         -- «Неизвестно» к приезду — не свободна: водителю нужна точка, о которой известно, что она свободна.
+         -- (Раньше такие строки отбрасывались, и модель переоценивала точки со статусом Unknown.)
+         WHERE t.status IS NOT NULL
     ), keys AS (
         SELECT DISTINCT grp, t0 FROM labeled
     ), grp_now AS (
