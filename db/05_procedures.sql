@@ -125,10 +125,27 @@ BEGIN
      WHERE NOT EXISTS (SELECT 1 FROM core.plug_alias a WHERE a.source = 'oicp' AND a.source_name = p.name)
      GROUP BY p.name;
 
-    -- 7. Точки, исчезнувшие из полной выгрузки, деактивируются (история сохраняется)
+    -- 7. Точки, исчезнувшие из полной выгрузки, деактивируются (история сохраняется).
+    -- Операторы передают данные независимо: если оператор пропал из выгрузки целиком или наполовину,
+    -- это сбой его канала, а не закрытие сети — деактивация откладывается на 7 суток, факт пишется в карантин.
     IF v_incoming >= v_active * 0.5 THEN
+        DROP TABLE IF EXISTS tmp_op_gap;
+        CREATE TEMP TABLE tmp_op_gap AS
+        SELECT e.operator_id, count(*) AS n_active, count(t.evse_id) AS n_incoming
+          FROM core.evse e LEFT JOIN tmp_evse t USING (evse_id)
+         WHERE e.is_active
+         GROUP BY e.operator_id
+        HAVING count(t.evse_id) < count(*) * 0.5;
+
+        INSERT INTO ops.quarantine (run_id, table_name, record, reason)
+        SELECT p_run_id, 'stg.evse_data.operator', to_jsonb(g), 'operator feed incomplete: deactivation postponed'
+          FROM tmp_op_gap g;
+
         UPDATE core.evse e SET is_active = false, valid_from = v_run_ts, last_run_id = p_run_id
-         WHERE e.is_active AND NOT EXISTS (SELECT 1 FROM tmp_evse t WHERE t.evse_id = e.evse_id);
+         WHERE e.is_active AND NOT EXISTS (SELECT 1 FROM tmp_evse t WHERE t.evse_id = e.evse_id)
+           AND (e.operator_id NOT IN (SELECT operator_id FROM tmp_op_gap)
+                OR e.last_seen < v_run_ts - interval '7 days');
+        DROP TABLE tmp_op_gap;
     ELSE
         RAISE WARNING 'partial EVSEData payload (% of % active): deactivation skipped', v_incoming, v_active;
     END IF;

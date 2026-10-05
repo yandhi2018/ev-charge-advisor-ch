@@ -157,6 +157,33 @@ def test_recommendation_of_incompatible_station_is_rejected(conn_of):
                      "p_free, expected_total_min) VALUES (%s, 1, %s, 1, 2, 0.5, 30)", (req, pair["station_id"]))
 
 
+def test_operator_missing_from_payload_is_not_deactivated(conn_of):
+    conn = conn_of("engineer")
+    last = conn.execute("""SELECT r.run_id FROM ops.load_run r
+                            WHERE r.source = 'evse_data' AND r.status = 'success'
+                              AND EXISTS (SELECT 1 FROM stg.evse_data s WHERE s.run_id = r.run_id)
+                            ORDER BY r.started_at DESC LIMIT 1""").fetchone()
+    op = conn.execute("""SELECT operator_id, count(*) AS n FROM core.evse WHERE is_active
+                          GROUP BY 1 HAVING count(*) BETWEEN 20 AND 1000 ORDER BY 2 DESC LIMIT 1""").fetchone()
+    if last is None or op is None:
+        pytest.skip("нет выгрузки справочника")
+    run = uuid.uuid4()
+    conn.execute("INSERT INTO ops.load_run (run_id, source) VALUES (%s, 'test')", (run,))
+    cols = ("evse_id, operator_id, operator_name, station_ext_id, pool_ext_id, station_name, street, postal_code, "
+            "city, country, lat, lon, accessibility, access_location, is_open_24h, plugs, power_kw, power_type, "
+            "auth_modes, last_update, record_hash")
+    # та же выгрузка, но без одного оператора — как при сбое его канала
+    conn.execute(f"INSERT INTO stg.evse_data (run_id, {cols}) SELECT %s, {cols} FROM stg.evse_data "
+                 "WHERE run_id = %s AND operator_id <> %s", (run, last["run_id"], op["operator_id"]))
+    conn.execute("CALL core.sp_apply_evse_data(%s)", (run,))
+    n = conn.execute("SELECT count(*) AS n FROM core.evse WHERE is_active AND operator_id = %s",
+                     (op["operator_id"],)).fetchone()["n"]
+    assert n == op["n"]
+    q = conn.execute("SELECT count(*) AS n FROM ops.quarantine WHERE run_id = %s "
+                     "AND table_name = 'stg.evse_data.operator'", (run,)).fetchone()["n"]
+    assert q >= 1
+
+
 # ---------------------------------------------------------------- идемпотентность
 def test_effective_power_ignores_unknown_point_power(conn_of):
     conn = conn_of("driver")
