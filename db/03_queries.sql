@@ -12,7 +12,7 @@ SELECT e.evse_id, s.name, s.street, s.city, e.power_kw
  ORDER BY e.power_kw DESC, s.city;
 
 -- Запрос 2. [JOIN трёх и более таблиц] Водитель: станции с разъёмом CCS2 и оператором в Цюрихе
--- (station — evse — evse_plug — plug_type — operator).
+-- (таблицы station, evse, evse_plug, plug_type и operator).
 SELECT DISTINCT s.station_id, s.name, o.name AS operator, pt.name_ru AS plug
   FROM core.station s
   JOIN core.operator o   ON o.operator_id = s.operator_id
