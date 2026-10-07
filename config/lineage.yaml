@@ -41,6 +41,7 @@ nodes:
   - {id: tr.sp_weather,    type: transform, title: "core.sp_apply_weather", ref: "db/05_procedures.sql"}
   - {id: tr.sp_archive_evse, type: transform, title: "core.sp_build_archive_evse", ref: "db/05_procedures.sql"}
   - {id: tr.sp_live_occ,   type: transform, title: "mart.sp_refresh_live_occupancy", ref: "db/05_procedures.sql"}
+  - {id: tr.quality,       type: transform, title: "Проверки качества (18 SQL-проверок)", ref: "config/dq_checks.yaml, src/evadvisor/quality.py"}
 
   # core
   - {id: core.station,     type: core, title: "core.station (разрешение сущностей)", ref: "db/01_create_tables.sql"}
@@ -51,6 +52,7 @@ nodes:
   - {id: core.weather,     type: core, title: "core.weather_hourly", ref: "db/01_create_tables.sql"}
   - {id: core.vehicle,     type: core, title: "core.vehicle + vehicle_plug", ref: "db/01_create_tables.sql"}
   - {id: core.postal,      type: core, title: "core.postal_code", ref: "db/01_create_tables.sql"}
+  - {id: core.dq_result,   type: core, title: "ops.dq_check, ops.dq_result, ops.quarantine", ref: "db/01_create_tables.sql"}
 
   # витрины
   - {id: mart.occupancy,   type: mart, title: "mart.occupancy_hourly", ref: "db/01_create_tables.sql"}
@@ -136,3 +138,13 @@ edges:
   - mart.metrics -> dash.subject
   - mart.coverage -> dash.ops
   - metric.dq -> dash.ops
+  - stg.evse_data -> tr.quality
+  - stg.evse_status -> tr.quality
+  - core.station -> tr.quality
+  - core.evse -> tr.quality
+  - core.vehicle -> tr.quality
+  - core.weather -> tr.quality
+  - mart.occupancy -> tr.quality
+  - mart.coverage -> tr.quality
+  - tr.quality -> core.dq_result
+  - core.dq_result -> metric.dq
